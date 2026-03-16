@@ -19,7 +19,6 @@ function runRegressionSuite() {
     $migrationPath = __DIR__ . '/../database/migrations/2026_03_13_000004_add_registry_schema_aliases.sql';
     $cutoverMigrationPath = __DIR__ . '/../database/migrations/2026_03_13_000005_drop_approval_compatibility_columns.sql';
     $authoringServicePath = __DIR__ . '/../app/models/ProcedureAuthoringService.php';
-    $syncServicePath = __DIR__ . '/../app/models/ProcedureSyncService.php';
     $workflowActionPath = __DIR__ . '/../app/models/WorkflowAction.php';
     $readModelPath = __DIR__ . '/../app/models/ProcedureReadModel.php';
     $controllerPath = __DIR__ . '/../app/controllers/Procedures.php';
@@ -79,12 +78,6 @@ function runRegressionSuite() {
     );
 
     assertFileContains(
-        $syncServicePath,
-        'registration_date, status, file_path, based_on_version_id, created_by, registered_by)',
-        'ProcedureSyncService should write registry-native version metadata directly after the cutover.'
-    );
-
-    assertFileContains(
         $authoringServicePath,
         'PDMS_REGISTER_PROCEDURE',
         'ProcedureAuthoringService should log registry-native procedure registration actions.'
@@ -106,6 +99,11 @@ function runRegressionSuite() {
         $controllerPath,
         'return $this->registerRevision($id);',
         'Procedures::issue should remain as a compatibility wrapper around registerRevision.'
+    );
+
+    assertTrue(
+        file_exists(__DIR__ . '/../app/models/ProcedureSyncService.php') === false,
+        'Registry schema cleanup should remove the retired legacy sync service.'
     );
 
     echo "Registry schema alias regression: OK\n";

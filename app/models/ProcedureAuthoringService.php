@@ -20,22 +20,10 @@ class ProcedureAuthoringService {
         $this->db->beginTransaction();
 
         try {
-            $legacyTargetPostId = null;
+            $targetVersion = null;
             if ($targetVersionId) {
                 $targetVersion = $this->getVersionById($targetVersionId);
-                $legacyTargetPostId = !empty($targetVersion->legacy_post_id) ? (int) $targetVersion->legacy_post_id : null;
             }
-
-            $legacyPostId = $this->createLegacyPost([
-                'title' => $data['title'],
-                'description' => $data['description'],
-                'reference_number' => $data['document_number'],
-                'date_of_effectivity' => $data['effective_date'],
-                'upload_date' => date('Y-m-d'),
-                'file' => $data['file_path'],
-                'amended_post_id' => $this->resolveLegacyAmendedTargetId($relationshipType, $legacyTargetPostId),
-                'superseded_post_id' => $this->resolveLegacySupersededTargetId($relationshipType, $legacyTargetPostId)
-            ]);
 
             $procedureId = $this->createProcedure([
                 'procedure_code' => $data['procedure_code'],
@@ -44,13 +32,11 @@ class ProcedureAuthoringService {
                 'category' => $data['category'] ?? null,
                 'owner_office' => $data['owner_office'] ?? null,
                 'status' => $this->resolveProcedureStatus($status),
-                'legacy_post_id' => $legacyPostId,
                 'created_by' => $userId
             ]);
 
             $versionId = $this->createVersion([
                 'procedure_id' => $procedureId,
-                'legacy_post_id' => $legacyPostId,
                 'version_number' => '1.0',
                 'document_number' => $data['document_number'],
                 'title' => $data['title'],
@@ -107,8 +93,7 @@ class ProcedureAuthoringService {
 
             return [
                 'procedure_id' => $procedureId,
-                'version_id' => $versionId,
-                'legacy_post_id' => $legacyPostId
+                'version_id' => $versionId
             ];
         } catch (Throwable $e) {
             $this->db->rollBack();
@@ -153,22 +138,9 @@ class ProcedureAuthoringService {
 
         try {
             $targetVersion = $targetVersionId ? $this->getVersionById($targetVersionId) : null;
-            $legacyTargetPostId = !empty($targetVersion->legacy_post_id) ? (int) $targetVersion->legacy_post_id : null;
-
-            $legacyPostId = $this->createLegacyPost([
-                'title' => $data['title'],
-                'description' => $data['description'],
-                'reference_number' => $data['document_number'],
-                'date_of_effectivity' => $data['effective_date'],
-                'upload_date' => date('Y-m-d'),
-                'file' => $data['file_path'],
-                'amended_post_id' => $this->resolveLegacyAmendedTargetId($relationshipType, $legacyTargetPostId),
-                'superseded_post_id' => $this->resolveLegacySupersededTargetId($relationshipType, $legacyTargetPostId)
-            ]);
 
             $versionId = $this->createVersion([
                 'procedure_id' => $procedureId,
-                'legacy_post_id' => $legacyPostId,
                 'version_number' => $this->generateNextVersionNumber($procedureId, $changeType),
                 'document_number' => $data['document_number'],
                 'title' => $data['title'],
@@ -230,8 +202,7 @@ class ProcedureAuthoringService {
 
             return [
                 'procedure_id' => $procedureId,
-                'version_id' => $versionId,
-                'legacy_post_id' => $legacyPostId
+                'version_id' => $versionId
             ];
         } catch (Throwable $e) {
             $this->db->rollBack();
@@ -272,16 +243,6 @@ class ProcedureAuthoringService {
                 'registered_by' => $data['user_id'] ?? null
             ]);
 
-            if (!empty($currentVersion->legacy_post_id)) {
-                $this->updateLegacyPost((int) $currentVersion->legacy_post_id, [
-                    'title' => $data['title'],
-                    'description' => $data['description'],
-                    'reference_number' => $data['document_number'],
-                    'date_of_effectivity' => $data['effective_date'] ?? null,
-                    'file' => $data['file_path'] ?? $currentVersion->file_path
-                ]);
-            }
-
             $this->logActivity(
                 $data['user_id'] ?? null,
                 'PDMS Edit Procedure',
@@ -305,7 +266,7 @@ class ProcedureAuthoringService {
         }
 
         if (PdmsAuthoringOptions::normalizeWorkflowStatus($currentVersion->status ?? '', '') !== 'REGISTERED') {
-            throw new RuntimeException('Only registered current versions can be promoted to effective.');
+            throw new RuntimeException('Only registered current versions can be marked effective.');
         }
 
         $this->db->beginTransaction();
@@ -543,40 +504,12 @@ class ProcedureAuthoringService {
         return PdmsAuthoringOptions::defaultRelationshipTypeForChangeType($changeType);
     }
 
-    private function resolveLegacyAmendedTargetId($relationshipType, $legacyTargetPostId) {
-        return in_array($relationshipType, PdmsAuthoringOptions::relationshipTypesWithAffectedSections(), true) ? $legacyTargetPostId : null;
-    }
-
-    private function resolveLegacySupersededTargetId($relationshipType, $legacyTargetPostId) {
-        return PdmsAuthoringOptions::pdmsRelationshipMode('', $relationshipType) === 'supersede' ? $legacyTargetPostId : null;
-    }
-
-    private function createLegacyPost($data) {
-        $this->db->query(
-            'INSERT INTO posts
-                (title, description, reference_number, date_of_effectivity, upload_date, file, amended_post_id, superseded_post_id)
-             VALUES
-                (:title, :description, :reference_number, :date_of_effectivity, :upload_date, :file, :amended_post_id, :superseded_post_id)'
-        );
-        $this->db->bind(':title', $data['title']);
-        $this->db->bind(':description', $data['description']);
-        $this->db->bind(':reference_number', $data['reference_number']);
-        $this->db->bind(':date_of_effectivity', $data['date_of_effectivity']);
-        $this->db->bind(':upload_date', $data['upload_date']);
-        $this->db->bind(':file', $data['file'] ?? null);
-        $this->db->bind(':amended_post_id', $data['amended_post_id'] ?? null);
-        $this->db->bind(':superseded_post_id', $data['superseded_post_id'] ?? null);
-        $this->db->execute();
-
-        return (int) $this->db->lastInsertId();
-    }
-
     private function createProcedure($data) {
         $this->db->query(
             'INSERT INTO procedures
-                (procedure_code, title, description, category, owner_office, status, legacy_post_id, created_by)
+                (procedure_code, title, description, category, owner_office, status, created_by)
              VALUES
-                (:procedure_code, :title, :description, :category, :owner_office, :status, :legacy_post_id, :created_by)'
+                (:procedure_code, :title, :description, :category, :owner_office, :status, :created_by)'
         );
         $this->db->bind(':procedure_code', $data['procedure_code']);
         $this->db->bind(':title', $data['title']);
@@ -584,7 +517,6 @@ class ProcedureAuthoringService {
         $this->db->bind(':category', $data['category'] ?? null);
         $this->db->bind(':owner_office', $data['owner_office'] ?? null);
         $this->db->bind(':status', $data['status'] ?? 'ACTIVE');
-        $this->db->bind(':legacy_post_id', $data['legacy_post_id'] ?? null);
         $this->db->bind(':created_by', $data['created_by'] ?? null);
         $this->db->execute();
 
@@ -613,17 +545,16 @@ class ProcedureAuthoringService {
     private function createVersion($data) {
         $this->db->query(
             'INSERT INTO procedure_versions
-                (procedure_id, legacy_post_id, version_number, document_number, title, summary_of_change, change_type,
+                (procedure_id, version_number, document_number, title, summary_of_change, change_type,
                  effective_date, registration_date, status, file_path, based_on_version_id, created_by, registered_by)
              VALUES
-                (:procedure_id, :legacy_post_id, :version_number, :document_number, :title, :summary_of_change, :change_type,
+                (:procedure_id, :version_number, :document_number, :title, :summary_of_change, :change_type,
                  :effective_date, :registration_date, :status, :file_path, :based_on_version_id, :created_by, :registered_by)'
         );
         $this->db->bind(':registration_date', $data['registration_date'] ?? date('Y-m-d'));
         $this->db->bind(':registered_by', $data['registered_by'] ?? $data['created_by'] ?? null);
 
         $this->db->bind(':procedure_id', $data['procedure_id'], PDO::PARAM_INT);
-        $this->db->bind(':legacy_post_id', $data['legacy_post_id'] ?? null);
         $this->db->bind(':version_number', $data['version_number']);
         $this->db->bind(':document_number', $data['document_number'] ?? null);
         $this->db->bind(':title', $data['title']);
@@ -755,25 +686,6 @@ class ProcedureAuthoringService {
         );
         $this->db->bind(':status', $status);
         $this->db->bind(':id', $versionId, PDO::PARAM_INT);
-        $this->db->execute();
-    }
-
-    private function updateLegacyPost($postId, $data) {
-        $this->db->query(
-            'UPDATE posts
-             SET title = :title,
-                 description = :description,
-                 reference_number = :reference_number,
-                 date_of_effectivity = :date_of_effectivity,
-                 file = :file
-             WHERE id = :id'
-        );
-        $this->db->bind(':title', $data['title']);
-        $this->db->bind(':description', $data['description']);
-        $this->db->bind(':reference_number', $data['reference_number']);
-        $this->db->bind(':date_of_effectivity', $data['date_of_effectivity'] ?? null);
-        $this->db->bind(':file', $data['file'] ?? null);
-        $this->db->bind(':id', $postId, PDO::PARAM_INT);
         $this->db->execute();
     }
 

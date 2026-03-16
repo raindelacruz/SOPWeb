@@ -1,5 +1,7 @@
 # Post-Cutover Audit - March 13, 2026
 
+> Historical note: this audit captures the March 13, 2026 pre-cleanup state when the legacy bridge still remained in the repository. For the current PDMS-only runtime contract prepared on March 14, 2026, use `CURRENT_ARCHITECTURE_STATE_2026-03-13.md`, `PROJECT_CONTEXT.md`, `SYSTEM_DESIGN.md`, and `DATABASE_REFERENCE.md`.
+
 ## Scope
 
 This audit records the live applied state after:
@@ -19,6 +21,9 @@ Evidence was taken from:
 SOPWeb is now aligned around the registry model in code, schema, and local data.
 
 The application no longer depends on approval-era compatibility columns in the live schema contract, and the local database no longer carries approval-era status values in `procedure_versions` or terminal master records with stale controlling pointers.
+
+Legacy `posts` create/edit routes are also retired as active admin write surfaces; PDMS screens are now the supported lifecycle entry point while `posts` remains available for compatibility-oriented browsing and traceability.
+The current architectural position is that PDMS tables are the operational source of truth, while `posts` remains a retained archival mirror linked through `legacy_post_id`.
 
 Status:
 
@@ -72,6 +77,14 @@ Read surfaces also render registry-native workflow labels directly:
 - `app/views/procedures/version.php`
 - `app/views/posts/show.php`
 
+Those detail surfaces now also explain:
+
+- when a record is `REGISTERED` but not yet the effective controlling version
+- when a historical procedure page is using the latest version as an audit anchor
+- when PDMS is authoritative and the legacy SOP page is acting only as a compatibility mirror
+
+Legacy post write views are no longer part of the active runtime path.
+
 ### Controlling-version behavior remains registry-only
 
 Current-version recovery and control logic now treat `EFFECTIVE` as the only controlling candidate.
@@ -114,6 +127,7 @@ This now includes coverage for:
 - Phase D rollout assets
 - local Phase D command assets
 - post-cutover data normalization
+- PDMS lifecycle service flows for registration, revision replacement, supersession, rescission, and historical-version archiving
 
 ## Documentation Alignment
 
@@ -131,7 +145,7 @@ These docs now correctly describe:
 
 ## Residual Notes
 
-The repository still preserves migration history and compatibility context in older migration files and legacy bridge behavior around `posts`.
+The repository still preserves migration history and compatibility context in older migration files and a retained legacy archive mirror around `posts`.
 
 That remaining legacy context is expected and does not conflict with the current registry-native PDMS runtime.
 

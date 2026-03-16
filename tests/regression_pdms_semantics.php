@@ -50,7 +50,6 @@ function testHistoricalProcedureUsesAuditAnchor() {
         'current_document_number' => null,
         'current_change_type' => null,
         'current_summary_of_change' => null,
-        'current_legacy_post_id' => null,
         'current_version_status' => null,
         'current_effective_date' => null,
         'current_file_path' => null
@@ -62,7 +61,6 @@ function testHistoricalProcedureUsesAuditAnchor() {
         'document_number' => 'PROC-4',
         'change_type' => 'FULL_REVISION',
         'summary_of_change' => 'Final historical issuance',
-        'legacy_post_id' => 122,
         'status' => 'SUPERSEDED',
         'effective_date' => '2026-03-01',
         'file_path' => 'anchor.pdf'

@@ -1,5 +1,7 @@
 # Alignment Audit - March 13, 2026
 
+> Historical note: this audit reflects the pre-retirement state from earlier on March 13, 2026. Legacy `posts` create/edit write paths were retired later the same day, so use `POST_CUTOVER_AUDIT_2026-03-13.md` plus the current project docs for the latest runtime position.
+
 ## Scope
 
 This audit compares the updated repository markdown docs against the live implementation as inspected on March 13, 2026:

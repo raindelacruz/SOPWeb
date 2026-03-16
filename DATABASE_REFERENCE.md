@@ -2,21 +2,14 @@
 
 ## Purpose
 
-This file documents the current database reality of SOPWeb and the intended direction of its PDMS migration.
+This file documents the current database contract expected by the cleaned repository.
 
-Business intent clarification:
+Important timing note:
 
-- the system is a registry for SOPs already approved outside the application
-- the database should prioritize current-version control, revision lineage, section lineage, and historical retention
-- approval-specific fields and status semantics that still exist in code should be treated as compatibility artifacts unless explicitly repurposed
+- the repository is already aligned to the post-bridge schema
+- the local database has already had the March 14, 2026 bridge-drop migration applied
 
-It should be used before editing:
-
-- SQL migrations
-- model queries
-- sync logic
-- lifecycle log logic
-- lineage/history displays
+Other environments that have not yet applied that migration may still contain older bridge artifacts that the code no longer uses.
 
 ## Platform
 
@@ -25,54 +18,27 @@ It should be used before editing:
 - UTF-8 / utf8mb4 recommended
 - XAMPP in development
 
-## Current Operational Tables
+## Active Operational Tables
 
 ### users
 
-Current role values in live code:
+Live role values:
 
 - `user`
 - `admin`
 - `super_admin`
 
-Future approval-workflow roles are not part of the clarified business intent.
-
-### posts
-
-This remains the legacy operational SOP table.
-
-Key fields used in live code:
-
-- `id`
-- `title`
-- `description`
-- `reference_number`
-- `date_of_effectivity`
-- `upload_date`
-- `file`
-- `amended_post_id`
-- `superseded_post_id`
-
-Current behavior notes:
-
-- `posts` is still the live create/edit/search source
-- records are not physically deleted through the application flow
-- legacy create/edit operations may synchronize the row into PDMS tables
-
 ### activity_logs
 
-Still used for:
+Used for:
 
-- authentication/user events
-- legacy post events
-- PDMS sync events
-- cleanup/backfill events when available
-
-## Implemented PDMS Tables
+- authentication and user events
+- PDMS registration and maintenance events
+- administrative audit context
 
 ### procedures
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `procedure_code`
@@ -82,24 +48,23 @@ Implemented columns:
 - `owner_office`
 - `status`
 - `current_version_id`
-- `legacy_post_id`
 - `created_by`
 - `created_at`
 - `updated_at`
 
 Important notes:
 
-- `legacy_post_id` is a migration bridge and is part of the live implementation
-- `owner_office` is currently a string column, not `owner_office_id`
-- `status` is currently used as a procedure-master state, not as the full version lifecycle field; active non-terminal procedures use `ACTIVE`, while terminal masters use `SUPERSEDED`, `RESCINDED`, or `ARCHIVED`
+- `status` is the procedure-master state
+- non-terminal procedures use `ACTIVE`
+- terminal procedure masters use `SUPERSEDED`, `RESCINDED`, or `ARCHIVED`
+- `current_version_id` points only to an `EFFECTIVE` version
 
 ### procedure_versions
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `procedure_id`
-- `legacy_post_id`
 - `version_number`
 - `document_number`
 - `title`
@@ -117,14 +82,12 @@ Implemented columns:
 
 Important notes:
 
-- `legacy_post_id` allows a legacy SOP row to map to a PDMS version directly
-- not every procedure master maps one-to-one with every historical legacy post
-- `registration_date` and `registered_by` are now the canonical registry-native registration fields
-- Phase D removes `approval_date` and `approved_by` from the live PDMS schema
+- `registration_date` and `registered_by` are canonical registry fields
+- approval-era fields such as `approval_date` and `approved_by` are not part of the current repository contract
 
 ### document_relationships
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `source_version_id`
@@ -132,7 +95,7 @@ Implemented columns:
 - `relationship_type`
 - `affected_sections`
 - `remarks`
-- `management_source` when the metadata migration has been applied
+- `management_source` when present
 - `created_by`
 - `created_at`
 
@@ -145,15 +108,9 @@ Relationship values used in code:
 - `REFERENCES`
 - `DERIVED_FROM`
 
-Current migration note:
-
-- sync-managed relationship rows should use `management_source = 'LEGACY_SYNC'`
-- older databases may still rely on the `[LEGACY_SYNC]` remarks prefix until the follow-up migration is applied
-- sync fallback relationship typing should follow the selected `change_type` default when explicit relationship metadata is absent; for example, `REFERENCE` should fall back to `REFERENCES`, not `AMENDS`
-
 ### workflow_actions
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `procedure_version_id`
@@ -164,23 +121,14 @@ Implemented columns:
 - `remarks`
 - `acted_at`
 
-Used for:
+Important notes:
 
-- sync creation/update/effective events
-- current-version restoration events
-- supersession events
-- lifecycle tracing and audit context
-
-Current design direction:
-
-- this table should be understood as a lifecycle or registry action log
-- `lifecycle_action_type` is now the canonical registry-native event label
-- Phase D removes the legacy `action_type` column from the live PDMS schema
-- approval-chain semantics should not drive future schema work
+- `lifecycle_action_type` is the canonical event label
+- legacy `action_type` is not part of the current repository contract
 
 ### procedure_sections
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `procedure_id`
@@ -190,14 +138,9 @@ Implemented columns:
 - `created_at`
 - `updated_at`
 
-Current implementation note:
-
-- this is the additive foundation for structured section lineage
-- current authoring still captures affected sections as free text first, then normalizes those labels into reusable procedure-section records when the foundation tables are available
-
 ### section_change_log
 
-Implemented columns:
+Implemented columns expected by current code:
 
 - `id`
 - `procedure_section_id`
@@ -210,14 +153,9 @@ Implemented columns:
 - `created_by`
 - `created_at`
 
-Current implementation note:
+## Status Model
 
-- this currently records normalized affected-section lineage for amendment/revision-style relationships
-- the existing `document_relationships.affected_sections` text field remains part of the live bridge for compatibility and UI continuity
-
-## Current Status Model
-
-Current live code now normalizes version status to:
+Version states:
 
 ```text
 REGISTERED
@@ -227,83 +165,51 @@ RESCINDED
 ARCHIVED
 ```
 
-Clarified design direction:
+Current rules:
 
-- these registry/lifecycle values are now the preferred live model for authoring, sync, and read behavior
-- legacy approval-style values such as `DRAFT`, `FOR_REVIEW`, `FOR_APPROVAL`, and `APPROVED` are still accepted or readable only as migration compatibility artifacts
-- `procedures.status` remains the master-level state field and should continue to use `ACTIVE` for non-terminal procedures
+- only `EFFECTIVE` is controlling
+- `procedures.status` is master-level state, not version lifecycle
+- terminal procedures must not retain `current_version_id`
 
-## Current Controlling Version Logic
+## Removed Bridge Contract
 
-The controlling version pointer is:
+The cleaned repository no longer uses:
 
-```text
-procedures.current_version_id
-```
+- `posts`
+- `procedures.legacy_post_id`
+- `procedure_versions.legacy_post_id`
+- `posts.amended_post_id`
+- `posts.superseded_post_id`
 
-Current behavior:
+These have been removed from the local database by:
 
-- sync logic updates the pointer when an eligible new version becomes controlling
-- if a current version is changed to a non-controlling status, the sync layer tries to restore the best eligible fallback or clear the pointer
-- `EFFECTIVE` is now the sole controlling-status candidate used for fallback current-version recovery
-- procedures in terminal states (`SUPERSEDED`, `RESCINDED`, `ARCHIVED`) should not retain a controlling-version pointer; read surfaces may instead use the latest historical version as an audit anchor
+- `database/migrations/2026_03_14_000007_drop_legacy_posts_bridge.sql`
 
-Target behavior:
+## Current Authoring Contract
 
-- current-version selection should be determined by registry lifecycle and effectivity, not by an in-system approval stage
+Database-facing writes now come from PDMS-native flows only:
 
-## Current Migration Strategy
+- procedure registration
+- revision registration
+- procedure edit of current metadata
+- mark-effective transition
+- supersession
+- rescission
+- historical-version archiving
 
-The live migration path is:
-
-1. keep `posts`
-2. mirror legacy records into PDMS tables through sync
-3. use backfill to synchronize older records in batches
-4. use cleanup to mark older sync-managed relationships
-5. continue migrating UI and business rules toward PDMS behavior
-
-This is important because the repository still preserves legacy compatibility paths even though PDMS-first procedure registration is now the preferred admin flow.
-
-## Current Authoring Policy Reality
-
-Current implementation note:
-
-- allowed PDMS authoring choices and bridge-safe legacy compatibility choices are now centralized in the application layer rather than duplicated across multiple controller/view validation lists
-- this shared authoring-policy surface currently governs option lists, normalization defaults, validation predicates, UI helper metadata, and validation/error-message copy
-- deprecated manual promote/transition controller surfaces have been removed from the active PDMS flow; revision registration continues through the canonical register-revision path with an `issue` route alias for compatibility
-- when database-facing sync or lineage behavior is changed, review that shared authoring policy together with the affected model/service logic so UI, validation, and sync assumptions do not drift apart
-- approval-oriented compatibility columns have now been removed from the live PDMS schema; future cleanup should focus on historical migration artifacts and old migration assumptions instead
-
-## Implemented Utilities
-
-### Backfill
-
-Purpose:
-
-- find legacy `posts` rows that do not yet map to `procedure_versions.legacy_post_id`
-- synchronize them into the PDMS model
-
-### Cleanup
-
-Purpose:
-
-- normalize older relationship rows so sync-managed links are identifiable
-- reduce accidental replacement of curated PDMS relationship data during re-sync
-
-## Not Yet Implemented
-
-- richer section-lineage authoring and reporting
+No repository code should depend on legacy post sync, backfill, or mirror writes.
 
 ## Safety Rules
 
 When changing database behavior:
 
-- do not remove legacy compatibility fields casually
-- do not reintroduce destructive deletion of official records
-- be careful when changing `current_version_id` semantics
-- protect relationship lineage during sync, backfill, and cleanup
-- treat approval-era column names as historical migration context, not active-schema targets
+- do not reintroduce physical deletion of official records
+- preserve current-version integrity
+- preserve normalized lineage integrity
+- keep procedure-master and version lifecycle logic separate
+- treat approval-era columns only as migration history
+- do not add new dependencies on removed bridge fields
 
 ## Purpose of This File
 
-This file is the repository’s current-state database reference for the legacy-plus-PDMS bridge architecture now present in SOPWeb.
+This file is the current-state database reference for SOPWeb's PDMS-only repository contract with the local schema already aligned.

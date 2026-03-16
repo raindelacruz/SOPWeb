@@ -5,9 +5,7 @@ class Procedures extends Controller {
     public function __construct() {
         Middleware::checkLoggedIn();
         $this->procedureModel = $this->model('Procedure');
-        $this->postModel = $this->model('Post');
         $this->procedureReadModel = $this->model('ProcedureReadModel');
-        $this->procedureSyncService = $this->model('ProcedureSyncService');
         $this->procedureAuthoringService = $this->model('ProcedureAuthoringService');
     }
 
@@ -28,41 +26,129 @@ class Procedures extends Controller {
         return $directory;
     }
 
-    private function processPdfUpload($file, $isRequired = true) {
-        if (empty($file) || !isset($file['error'])) {
-            return ['file' => '', 'error' => $isRequired ? 'Please upload a PDF file' : ''];
+    private function processPdfPathInput($path, $isRequired = true) {
+        $path = trim((string) $path);
+
+        if ($path === '') {
+            return ['file' => '', 'error' => $isRequired ? 'Please enter a PDF file path' : ''];
         }
 
-        if ($file['error'] === UPLOAD_ERR_NO_FILE) {
-            return ['file' => '', 'error' => $isRequired ? 'Please upload a PDF file' : ''];
+        if (strpos($path, "\0") !== false) {
+            return ['file' => '', 'error' => 'Invalid PDF file path'];
         }
 
-        $fileName = $file['name'];
-        $fileTmpName = $file['tmp_name'];
-        $fileSize = $file['size'];
-        $fileError = $file['error'];
-        $fileExt = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-
+        $fileExt = strtolower(pathinfo($path, PATHINFO_EXTENSION));
         if ($fileExt !== 'pdf') {
             return ['file' => '', 'error' => 'Only PDF files are allowed'];
         }
 
-        if ($fileError !== UPLOAD_ERR_OK) {
-            return ['file' => '', 'error' => 'There was an error uploading the file'];
+        if ($this->resolveStoredPdfPath($path) === null) {
+            return ['file' => '', 'error' => 'The PDF file path could not be found or read'];
         }
 
-        if ($fileSize >= 50000000) {
-            return ['file' => '', 'error' => 'Your file is too big (max 50MB)'];
+        return ['file' => $path, 'error' => ''];
+    }
+
+    private function resolveStoredPdfPath($storedPath) {
+        $storedPath = trim((string) $storedPath);
+        if ($storedPath === '' || strpos($storedPath, "\0") !== false) {
+            return null;
         }
 
-        $fileNameNew = uniqid('', true) . '.pdf';
-        $fileDestination = $this->ensureUploadsDirectory() . '/' . $fileNameNew;
+        if (is_file($storedPath) && is_readable($storedPath)) {
+            $resolved = realpath($storedPath);
 
-        if (!move_uploaded_file($fileTmpName, $fileDestination)) {
-            return ['file' => '', 'error' => 'There was an error uploading the file'];
+            return $resolved !== false ? $resolved : $storedPath;
         }
 
-        return ['file' => $fileNameNew, 'error' => ''];
+        $legacyUploadPath = $this->uploadsDirectory() . '/' . ltrim(str_replace('\\', '/', $storedPath), '/');
+        if (is_file($legacyUploadPath) && is_readable($legacyUploadPath)) {
+            $resolved = realpath($legacyUploadPath);
+
+            return $resolved !== false ? $resolved : $legacyUploadPath;
+        }
+
+        return null;
+    }
+
+    private function pdfBrowserRoots() {
+        $configuredRoots = defined('PDF_BROWSER_ROOTS') && is_array(PDF_BROWSER_ROOTS)
+            ? PDF_BROWSER_ROOTS
+            : [$this->uploadsDirectory()];
+        $roots = [];
+
+        foreach ($configuredRoots as $root) {
+            $normalizedRoot = realpath((string) $root);
+            if ($normalizedRoot !== false && is_dir($normalizedRoot) && is_readable($normalizedRoot)) {
+                $roots[] = rtrim(str_replace('\\', '/', $normalizedRoot), '/');
+            }
+        }
+
+        return array_values(array_unique($roots));
+    }
+
+    private function listAvailablePdfFiles($search = '', $limit = 200) {
+        $search = strtolower(trim((string) $search));
+        $results = [];
+
+        foreach ($this->pdfBrowserRoots() as $root) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+            );
+
+            foreach ($iterator as $fileInfo) {
+                if (!$fileInfo->isFile()) {
+                    continue;
+                }
+
+                if (strtolower($fileInfo->getExtension()) !== 'pdf') {
+                    continue;
+                }
+
+                $resolvedPath = $fileInfo->getRealPath();
+                if ($resolvedPath === false || !is_readable($resolvedPath)) {
+                    continue;
+                }
+
+                $normalizedPath = str_replace('\\', '/', $resolvedPath);
+                $haystack = strtolower($normalizedPath . ' ' . $fileInfo->getFilename());
+                if ($search !== '' && strpos($haystack, $search) === false) {
+                    continue;
+                }
+
+                $results[] = [
+                    'path' => $resolvedPath,
+                    'name' => $fileInfo->getFilename(),
+                    'directory' => dirname($resolvedPath),
+                    'root' => $root
+                ];
+
+                if (count($results) >= $limit) {
+                    break 2;
+                }
+            }
+        }
+
+        usort($results, function ($left, $right) {
+            return strcasecmp($left['path'], $right['path']);
+        });
+
+        return $results;
+    }
+
+    private function streamPdfFile($storedPath) {
+        $resolvedPath = $this->resolveStoredPdfPath($storedPath);
+        if ($resolvedPath === null) {
+            http_response_code(404);
+            die('PDF file not found');
+        }
+
+        header('Content-Type: application/pdf');
+        header('Content-Disposition: inline; filename="' . rawurlencode(basename($resolvedPath)) . '"');
+        header('Content-Length: ' . (string) filesize($resolvedPath));
+        header('X-Content-Type-Options: nosniff');
+        readfile($resolvedPath);
+        exit;
     }
 
     private function createDefaults() {
@@ -70,6 +156,7 @@ class Procedures extends Controller {
             'procedure_code' => '',
             'title' => '',
             'description' => '',
+            'responsibility_center' => '',
             'category' => '',
             'owner_office' => '',
             'document_number' => '',
@@ -97,6 +184,84 @@ class Procedures extends Controller {
         ];
     }
 
+    private function responsibilityCenterOptions() {
+        return ['Operations', 'Finance', 'Human Resource', 'Administrative'];
+    }
+
+    private function dashboardFiltersFromQuery() {
+        $responsibilityCenter = trim((string) ($_GET['responsibility_center'] ?? ''));
+        $dateFrom = trim((string) ($_GET['date_from'] ?? ''));
+        $dateTo = trim((string) ($_GET['date_to'] ?? ''));
+
+        if (!$this->isValidDashboardDate($dateFrom)) {
+            $dateFrom = '';
+        }
+
+        if (!$this->isValidDashboardDate($dateTo)) {
+            $dateTo = '';
+        }
+
+        if ($dateFrom !== '' && $dateTo !== '' && $dateFrom > $dateTo) {
+            $swap = $dateFrom;
+            $dateFrom = $dateTo;
+            $dateTo = $swap;
+        }
+
+        return [
+            'responsibility_center' => $responsibilityCenter,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo
+        ];
+    }
+
+    private function isValidDashboardDate($value) {
+        if ($value === '') {
+            return true;
+        }
+
+        $date = DateTime::createFromFormat('Y-m-d', $value);
+
+        return $date instanceof DateTime && $date->format('Y-m-d') === $value;
+    }
+
+    private function dashboardResponsibilityCenterOptions() {
+        $centers = array_merge(
+            $this->responsibilityCenterOptions(),
+            $this->procedureReadModel->getDashboardResponsibilityCenters()
+        );
+
+        $centers = array_values(array_unique(array_filter(array_map('trim', $centers))));
+        sort($centers);
+
+        return $centers;
+    }
+
+    private function inferResponsibilityCenter($record) {
+        $value = '';
+
+        if (is_array($record)) {
+            $value = trim((string) ($record['responsibility_center'] ?? $record['owner_office'] ?? $record['category'] ?? ''));
+        } elseif (is_object($record)) {
+            $value = trim((string) ($record->responsibility_center ?? $record->owner_office ?? $record->category ?? ''));
+        }
+
+        return in_array($value, $this->responsibilityCenterOptions(), true) ? $value : '';
+    }
+
+    private function applyResponsibilityCenterCompatibility($data) {
+        $center = trim((string) ($data['responsibility_center'] ?? ''));
+
+        if (!in_array($center, $this->responsibilityCenterOptions(), true)) {
+            $center = '';
+        }
+
+        $data['responsibility_center'] = $center;
+        $data['category'] = $center;
+        $data['owner_office'] = $center;
+
+        return $data;
+    }
+
     private function createOptions() {
         return [
             'change_types' => PdmsAuthoringOptions::createChangeTypes(),
@@ -114,9 +279,14 @@ class Procedures extends Controller {
         return $this->procedureAuthoringService->normalizeRelationshipAuthoringInput($data, $currentVersionId, $authoringMode);
     }
 
+    private function documentNumberExists($documentNumber, $excludeVersionId = null) {
+        return $this->procedureReadModel->documentNumberExists($documentNumber, $excludeVersionId);
+    }
+
     private function applySharedAuthoringFieldValidation($data, $authoringMode, $options = []) {
         $data['status'] = PdmsAuthoringOptions::normalizeWorkflowStatus($data['status'] ?? 'EFFECTIVE', 'EFFECTIVE');
         $currentVersionId = isset($options['current_version_id']) ? (string) $options['current_version_id'] : '';
+        $excludeVersionId = isset($options['exclude_version_id']) ? (int) $options['exclude_version_id'] : null;
 
         if (empty($data['title'])) {
             $data['title_err'] = 'Please enter a title';
@@ -128,8 +298,8 @@ class Procedures extends Controller {
 
         if (empty($data['document_number'])) {
             $data['document_number_err'] = 'Please enter a document number';
-        } elseif ($this->postModel->findPostByReferenceNumber($data['document_number'])) {
-            $data['document_number_err'] = 'Document number already exists in the legacy SOP registry';
+        } elseif ($this->documentNumberExists($data['document_number'], $excludeVersionId)) {
+            $data['document_number_err'] = 'Document number already exists in the PDMS registry';
         }
 
         if (empty($data['effective_date'])) {
@@ -199,6 +369,7 @@ class Procedures extends Controller {
         return [
             'title' => $procedure->title ?? '',
             'description' => $procedure->description ?? '',
+            'responsibility_center' => $this->inferResponsibilityCenter($procedure),
             'category' => $procedure->category ?? '',
             'owner_office' => $procedure->owner_office ?? '',
             'document_number' => '',
@@ -242,6 +413,7 @@ class Procedures extends Controller {
         return [
             'title' => $procedure->title ?? '',
             'description' => $procedure->description ?? '',
+            'responsibility_center' => $this->inferResponsibilityCenter($procedure),
             'category' => $procedure->category ?? '',
             'owner_office' => $procedure->owner_office ?? '',
             'document_number' => $procedure->current_document_number ?? '',
@@ -257,7 +429,7 @@ class Procedures extends Controller {
         ];
     }
 
-    private function validateEditInput($data, $currentLegacyPostId = null) {
+    private function validateEditInput($data, $currentVersionId = null) {
         if (empty($data['title'])) {
             $data['title_err'] = 'Please enter a title';
         }
@@ -268,11 +440,8 @@ class Procedures extends Controller {
 
         if (empty($data['document_number'])) {
             $data['document_number_err'] = 'Please enter a document number';
-        } else {
-            $existingPost = $this->postModel->findPostByReferenceNumber($data['document_number']);
-            if ($existingPost && (int) $existingPost->id !== (int) $currentLegacyPostId) {
-                $data['document_number_err'] = 'Document number already exists in the legacy SOP registry';
-            }
+        } elseif ($this->documentNumberExists($data['document_number'], $currentVersionId)) {
+            $data['document_number_err'] = 'Document number already exists in the PDMS registry';
         }
 
         if (empty($data['effective_date'])) {
@@ -332,6 +501,7 @@ class Procedures extends Controller {
             'procedure_code' => '',
             'title' => $procedure->title ?? '',
             'description' => $procedure->description ?? '',
+            'responsibility_center' => $this->inferResponsibilityCenter($procedure),
             'category' => $procedure->category ?? '',
             'owner_office' => $procedure->owner_office ?? '',
             'document_number' => '',
@@ -355,13 +525,31 @@ class Procedures extends Controller {
 
     public function index() {
         $search = isset($_GET['search']) ? trim($_GET['search']) : '';
-        $procedures = $this->procedureReadModel->getProcedureDashboard($search);
+        $viewMode = isset($_GET['view']) ? strtolower(trim($_GET['view'])) : 'card';
+        $isAdmin = isset($_SESSION['user_role']) && in_array($_SESSION['user_role'], ['admin', 'super_admin'], true);
+        if (!in_array($viewMode, ['card', 'list'], true)) {
+            $viewMode = 'card';
+        }
+        $filters = $this->dashboardFiltersFromQuery();
+        $procedures = $this->procedureReadModel->getProcedureDashboard($search, $filters);
+        $dashboardCounts = $this->procedureReadModel->getProcedureDashboardCounts($search, $filters);
+        $historicalProcedures = [];
+
+        if ($isAdmin) {
+            $historicalProcedures = $this->procedureReadModel->getHistoricalProcedureDashboard($search, $filters);
+        } else {
+            $dashboardCounts['historical_total'] = 0;
+        }
 
         $data = [
             'search' => $search,
+            'view_mode' => $viewMode,
+            'filters' => $filters,
             'procedures' => $procedures,
+            'historical_procedures' => $historicalProcedures,
+            'dashboard_counts' => $dashboardCounts,
             'has_pdms' => $this->procedureReadModel->hasPdmsFoundation(),
-            'backfill_status' => $this->procedureReadModel->getBackfillStatus()
+            'responsibility_center_options' => $this->dashboardResponsibilityCenterOptions()
         ];
 
         $this->view('procedures/index', $data);
@@ -386,8 +574,7 @@ class Procedures extends Controller {
                 'procedure_code' => trim($_POST['procedure_code'] ?? ''),
                 'title' => trim($_POST['title'] ?? ''),
                 'description' => trim($_POST['description'] ?? ''),
-                'category' => trim($_POST['category'] ?? ''),
-                'owner_office' => trim($_POST['owner_office'] ?? ''),
+                'responsibility_center' => trim($_POST['responsibility_center'] ?? ''),
                 'document_number' => trim($_POST['document_number'] ?? ''),
                 'summary_of_change' => trim($_POST['summary_of_change'] ?? ''),
                 'change_type' => trim($_POST['change_type'] ?? 'NEW'),
@@ -399,9 +586,10 @@ class Procedures extends Controller {
                 'relationship_remarks' => trim($_POST['relationship_remarks'] ?? '')
             ]);
 
-            $upload = $this->processPdfUpload($_FILES['file'] ?? null, true);
-            $data['file'] = $upload['file'];
-            $data['file_err'] = $upload['error'];
+            $file = $this->processPdfPathInput($_POST['file'] ?? '', true);
+            $data['file'] = $file['file'];
+            $data['file_err'] = $file['error'];
+            $data = $this->applyResponsibilityCenterCompatibility($data);
             $data = $this->normalizeRelationshipAuthoringInput($data, null, 'create');
             $data = $this->validateCreateInput($data);
 
@@ -426,19 +614,21 @@ class Procedures extends Controller {
                         'file_path' => $data['file']
                     ]);
 
-                    flash('procedures_backfill', 'PDMS procedure created successfully and mirrored to the legacy SOP registry.', 'alert alert-success');
+                    flash('procedures_backfill', 'PDMS procedure created successfully.', 'alert alert-success');
                     redirect('procedures/show/' . $result['procedure_id']);
                 } catch (Throwable $e) {
                     $data['pdms_err'] = 'The procedure could not be created. ' . $e->getMessage();
                 }
             }
 
+            $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
             $data['options'] = $this->createOptions();
             $this->view('procedures/create', $data);
             return;
         }
 
         $data = $this->createDefaults();
+        $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
         $data['options'] = $this->createOptions();
         $this->view('procedures/create', $data);
     }
@@ -471,8 +661,7 @@ class Procedures extends Controller {
             $data = array_merge($data, [
                 'title' => trim($_POST['title'] ?? ''),
                 'description' => trim($_POST['description'] ?? ''),
-                'category' => trim($_POST['category'] ?? ''),
-                'owner_office' => trim($_POST['owner_office'] ?? ''),
+                'responsibility_center' => trim($_POST['responsibility_center'] ?? ''),
                 'document_number' => trim($_POST['document_number'] ?? ''),
                 'summary_of_change' => trim($_POST['summary_of_change'] ?? ''),
                 'change_type' => trim($_POST['change_type'] ?? 'AMENDMENT'),
@@ -484,9 +673,10 @@ class Procedures extends Controller {
                 'relationship_remarks' => trim($_POST['relationship_remarks'] ?? '')
             ]);
 
-            $upload = $this->processPdfUpload($_FILES['file'] ?? null, true);
-            $data['file'] = $upload['file'];
-            $data['file_err'] = $upload['error'];
+            $file = $this->processPdfPathInput($_POST['file'] ?? '', true);
+            $data['file'] = $file['file'];
+            $data['file_err'] = $file['error'];
+            $data = $this->applyResponsibilityCenterCompatibility($data);
             $data = $this->normalizeRelationshipAuthoringInput($data, (int) ($procedure->current_version_id ?? 0), 'issue');
             $data = $this->validateIssueInput($data, (int) $id, (int) ($procedure->current_version_id ?? 0));
 
@@ -518,6 +708,7 @@ class Procedures extends Controller {
             }
 
             $data['procedure'] = $procedure;
+            $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
             $data['options'] = $this->issueOptions((int) $id, $procedure);
             $this->view('procedures/issue', $data);
             return;
@@ -525,6 +716,7 @@ class Procedures extends Controller {
 
         $data = $this->issueDefaults($procedure, $procedure);
         $data['procedure'] = $procedure;
+        $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
         $data['options'] = $this->issueOptions((int) $id, $procedure);
         $this->view('procedures/issue', $data);
     }
@@ -561,27 +753,18 @@ class Procedures extends Controller {
             $data = array_merge($data, [
                 'title' => trim($_POST['title'] ?? ''),
                 'description' => trim($_POST['description'] ?? ''),
-                'category' => trim($_POST['category'] ?? ''),
-                'owner_office' => trim($_POST['owner_office'] ?? ''),
+                'responsibility_center' => trim($_POST['responsibility_center'] ?? ''),
                 'document_number' => trim($_POST['document_number'] ?? ''),
                 'summary_of_change' => trim($_POST['summary_of_change'] ?? ''),
                 'effective_date' => trim($_POST['effective_date'] ?? ''),
-                'file' => trim($_POST['existing_file'] ?? ($procedure->current_file_path ?? ''))
+                'file' => trim($_POST['file'] ?? ($procedure->current_file_path ?? ''))
             ]);
+            $file = $this->processPdfPathInput($data['file'], false);
+            $data['file'] = $file['file'];
+            $data['file_err'] = $file['error'];
 
-            if (!empty($_FILES['file']['name'])) {
-                $upload = $this->processPdfUpload($_FILES['file'], false);
-                $data['file'] = $upload['file'] ?: $data['file'];
-                $data['file_err'] = $upload['error'];
-            }
-
-            $currentVersion = !empty($detail['history']) ? $detail['history'][0] : null;
-            $currentLegacyPostId = $procedure->current_legacy_post_id ?? ($procedure->legacy_post_id ?? null);
-            if ($currentVersion && !empty($currentVersion->legacy_post_id)) {
-                $currentLegacyPostId = $currentVersion->legacy_post_id;
-            }
-
-            $data = $this->validateEditInput($data, $currentLegacyPostId);
+            $data = $this->applyResponsibilityCenterCompatibility($data);
+            $data = $this->validateEditInput($data, (int) ($procedure->current_version_id ?? 0));
 
             if (
                 empty($data['title_err']) &&
@@ -612,74 +795,34 @@ class Procedures extends Controller {
             }
 
             $data['procedure'] = $procedure;
+            $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
             $this->view('procedures/edit', $data);
             return;
         }
 
         $data = $this->editDefaults($procedure);
         $data['procedure'] = $procedure;
+        $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
         $this->view('procedures/edit', $data);
     }
 
     public function backfill() {
         Middleware::checkAdmin();
-
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verify_csrf_token($_POST['csrf_token'] ?? '')) {
-            $this->csrfFailure('procedures');
-        }
-
-        $limit = isset($_POST['limit']) && ctype_digit((string) $_POST['limit'])
-            ? max(1, min(250, (int) $_POST['limit']))
-            : 25;
-
-        $result = $this->procedureSyncService->backfillLegacyPosts($limit, $_SESSION['user_id'] ?? null);
-
-        if ($result['failed'] > 0) {
-            $message = 'Backfill processed ' . $result['attempted'] . ' posts: '
-                . $result['synced'] . ' synced, '
-                . $result['failed'] . ' failed.';
-
-            if (!empty($result['errors'])) {
-                $message .= ' First issue: ' . $result['errors'][0];
-            }
-
-            flash('procedures_backfill', $message, 'alert alert-warning');
-        } else {
-            flash(
-                'procedures_backfill',
-                'Backfill processed ' . $result['attempted'] . ' posts and synchronized ' . $result['synced'] . ' into the PDMS model.',
-                'alert alert-success'
-            );
-        }
-
+        flash(
+            'procedures_backfill',
+            'Legacy backfill has been retired. Use the PDMS procedures area directly.',
+            'alert alert-warning'
+        );
         redirect('procedures');
     }
 
     public function cleanup() {
         Middleware::checkAdmin();
-
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || !verify_csrf_token($_POST['csrf_token'] ?? '')) {
-            $this->csrfFailure('procedures');
-        }
-
-        $limit = isset($_POST['limit']) && ctype_digit((string) $_POST['limit'])
-            ? max(1, min(500, (int) $_POST['limit']))
-            : 100;
-
-        $result = $this->procedureSyncService->normalizeLegacyManagedRelationships($limit, $_SESSION['user_id'] ?? null);
-
-        if (!empty($result['errors'])) {
-            $message = 'Cleanup reviewed ' . $result['attempted'] . ' relationships and normalized '
-                . $result['updated'] . '. First issue: ' . $result['errors'][0];
-            flash('procedures_cleanup', $message, 'alert alert-warning');
-        } else {
-            flash(
-                'procedures_cleanup',
-                'Cleanup reviewed ' . $result['attempted'] . ' relationships and normalized ' . $result['updated'] . ' legacy-managed records.',
-                'alert alert-success'
-            );
-        }
-
+        flash(
+            'procedures_cleanup',
+            'Legacy cleanup has been retired. Use the PDMS procedures area directly.',
+            'alert alert-warning'
+        );
         redirect('procedures');
     }
 
@@ -743,8 +886,7 @@ class Procedures extends Controller {
                 'procedure_code' => trim($_POST['procedure_code'] ?? ''),
                 'title' => trim($_POST['title'] ?? ''),
                 'description' => trim($_POST['description'] ?? ''),
-                'category' => trim($_POST['category'] ?? ''),
-                'owner_office' => trim($_POST['owner_office'] ?? ''),
+                'responsibility_center' => trim($_POST['responsibility_center'] ?? ''),
                 'document_number' => trim($_POST['document_number'] ?? ''),
                 'summary_of_change' => trim($_POST['summary_of_change'] ?? ''),
                 'status' => trim($_POST['status'] ?? 'EFFECTIVE'),
@@ -753,6 +895,7 @@ class Procedures extends Controller {
             ]);
 
             $data['status'] = PdmsAuthoringOptions::normalizeWorkflowStatus($data['status'] ?? 'EFFECTIVE', 'EFFECTIVE');
+            $data = $this->applyResponsibilityCenterCompatibility($data);
             if (!in_array($data['status'], ['REGISTERED', 'EFFECTIVE'], true)) {
                 $data['status_err'] = PdmsAuthoringOptions::supersedingProcedureStatusMessage();
             }
@@ -761,9 +904,9 @@ class Procedures extends Controller {
                 $data['relationship_remarks_err'] = 'Please capture the supersession note or rationale.';
             }
 
-            $upload = $this->processPdfUpload($_FILES['file'] ?? null, true);
-            $data['file'] = $upload['file'];
-            $data['file_err'] = $upload['error'];
+            $file = $this->processPdfPathInput($_POST['file'] ?? '', true);
+            $data['file'] = $file['file'];
+            $data['file_err'] = $file['error'];
             $data = $this->validateCreateInput(array_merge($data, [
                 'change_type' => 'SUPERSEDING_PROCEDURE',
                 'target_version_id' => (string) $procedure->current_version_id,
@@ -816,6 +959,7 @@ class Procedures extends Controller {
         }
 
         $data = $this->supersedeDefaults($procedure);
+        $data['responsibility_center_options'] = $this->responsibilityCenterOptions();
         $this->view('procedures/supersede', $data);
     }
 
@@ -889,6 +1033,32 @@ class Procedures extends Controller {
             && in_array((string) ($version->status ?? ''), ['SUPERSEDED', 'RESCINDED'], true);
 
         $this->view('procedures/version', $detail);
+    }
+
+    public function file($id) {
+        if (!ctype_digit((string) $id)) {
+            die('Invalid version ID');
+        }
+
+        $detail = $this->procedureReadModel->getVersionDetailById((int) $id);
+        if (!$detail || empty($detail['version']->file_path)) {
+            http_response_code(404);
+            die('PDF file not found');
+        }
+
+        $this->streamPdfFile($detail['version']->file_path);
+    }
+
+    public function pdfCatalog() {
+        Middleware::checkAdmin();
+
+        $search = trim((string) ($_GET['search'] ?? ''));
+        header('Content-Type: application/json');
+        echo json_encode([
+            'roots' => $this->pdfBrowserRoots(),
+            'files' => $this->listAvailablePdfFiles($search)
+        ]);
+        exit;
     }
 
     public function archiveVersion($id) {

@@ -30,26 +30,6 @@ class ProcedureReadModel {
         }
     }
 
-    private function columnExists($tableName, $columnName) {
-        try {
-            $this->db->query(
-                'SELECT COUNT(*) AS total
-                 FROM information_schema.columns
-                 WHERE table_schema = :table_schema
-                   AND table_name = :table_name
-                   AND column_name = :column_name'
-            );
-            $this->db->bind(':table_schema', DB_NAME);
-            $this->db->bind(':table_name', $tableName);
-            $this->db->bind(':column_name', $columnName);
-
-            $row = $this->db->single();
-            return $row && (int) $row->total > 0;
-        } catch (PDOException $e) {
-            return false;
-        }
-    }
-
     public function hasPdmsFoundation() {
         return $this->tableExists('procedures')
             && $this->tableExists('procedure_versions')
@@ -92,7 +72,6 @@ class ProcedureReadModel {
                 pv.document_number AS current_document_number,
                 pv.change_type AS current_change_type,
                 pv.summary_of_change AS current_summary_of_change,
-                pv.legacy_post_id AS current_legacy_post_id,
                 pv.status AS current_version_status,
                 pv.effective_date AS current_effective_date,
                 pv.file_path AS current_file_path
@@ -106,10 +85,90 @@ class ProcedureReadModel {
         return $this->normalizeStatusProperty($this->applyHistoricalAnchorVersion($overview), 'current_version_status');
     }
 
-    public function getProcedureDashboard($search = '') {
+    private function normalizeDashboardFilters($search = '', array $filters = []) {
+        return [
+            'search' => trim((string) $search),
+            'responsibility_center' => trim((string) ($filters['responsibility_center'] ?? '')),
+            'date_from' => trim((string) ($filters['date_from'] ?? '')),
+            'date_to' => trim((string) ($filters['date_to'] ?? ''))
+        ];
+    }
+
+    private function applyDashboardFiltersToSql($sql, array $filters, $includeDocumentNumber = true) {
+        if ($filters['search'] !== '') {
+            $sql .= ' AND (
+                        p.procedure_code LIKE :search
+                        OR p.title LIKE :search
+                        OR p.description LIKE :search';
+
+            if ($includeDocumentNumber) {
+                $sql .= '
+                        OR pv.document_number LIKE :search';
+            }
+
+            $sql .= '
+                    )';
+        }
+
+        if ($filters['responsibility_center'] !== '') {
+            $sql .= ' AND p.owner_office = :responsibility_center';
+        }
+
+        if ($filters['date_from'] !== '') {
+            $sql .= ' AND pv.effective_date >= :date_from';
+        }
+
+        if ($filters['date_to'] !== '') {
+            $sql .= ' AND pv.effective_date <= :date_to';
+        }
+
+        return $sql;
+    }
+
+    private function bindDashboardFilters(array $filters) {
+        if ($filters['search'] !== '') {
+            $this->db->bind(':search', '%' . $filters['search'] . '%');
+        }
+
+        if ($filters['responsibility_center'] !== '') {
+            $this->db->bind(':responsibility_center', $filters['responsibility_center']);
+        }
+
+        if ($filters['date_from'] !== '') {
+            $this->db->bind(':date_from', $filters['date_from']);
+        }
+
+        if ($filters['date_to'] !== '') {
+            $this->db->bind(':date_to', $filters['date_to']);
+        }
+    }
+
+    public function getDashboardResponsibilityCenters() {
         if (!$this->hasPdmsFoundation()) {
             return [];
         }
+
+        $this->db->query(
+            'SELECT DISTINCT owner_office
+             FROM procedures
+             WHERE owner_office IS NOT NULL
+               AND owner_office <> ""
+             ORDER BY owner_office ASC'
+        );
+
+        $rows = $this->db->resultSet();
+
+        return array_values(array_filter(array_map(function ($row) {
+            return trim((string) ($row->owner_office ?? ''));
+        }, $rows)));
+    }
+
+    public function getProcedureDashboard($search = '', array $filters = []) {
+        if (!$this->hasPdmsFoundation()) {
+            return [];
+        }
+
+        $filters = $this->normalizeDashboardFilters($search, $filters);
 
         $sql = 'SELECT
                     p.id,
@@ -128,15 +187,7 @@ class ProcedureReadModel {
                 FROM procedures p
                 LEFT JOIN procedure_versions pv ON pv.id = p.current_version_id
                 WHERE p.status NOT IN (' . $this->sqlInList(PdmsAuthoringOptions::terminalProcedureStatuses()) . ')';
-
-        if ($search !== '') {
-            $sql .= ' AND (
-                        p.procedure_code LIKE :search
-                        OR p.title LIKE :search
-                        OR p.description LIKE :search
-                        OR pv.document_number LIKE :search
-                    )';
-        }
+        $sql = $this->applyDashboardFiltersToSql($sql, $filters, true);
 
         $sql .= ' ORDER BY
                     CASE WHEN pv.status = "EFFECTIVE" THEN 0 ELSE 1 END,
@@ -144,38 +195,71 @@ class ProcedureReadModel {
                     p.updated_at DESC';
 
         $this->db->query($sql);
-
-        if ($search !== '') {
-            $this->db->bind(':search', '%' . $search . '%');
-        }
+        $this->bindDashboardFilters($filters);
 
         return $this->normalizeStatusCollection($this->db->resultSet(), ['current_version_status']);
     }
 
-    public function getBackfillStatus() {
-        $status = [
-            'total_posts' => 0,
-            'mapped_versions' => 0,
-            'unmapped_posts' => 0
-        ];
-
-        try {
-            $this->db->query('SELECT COUNT(*) AS total FROM posts');
-            $status['total_posts'] = (int) ($this->db->single()->total ?? 0);
-        } catch (PDOException $e) {
-            return $status;
-        }
-
+    public function getHistoricalProcedureDashboard($search = '', array $filters = []) {
         if (!$this->hasPdmsFoundation()) {
-            $status['unmapped_posts'] = $status['total_posts'];
-            return $status;
+            return [];
         }
 
-        $this->db->query('SELECT COUNT(*) AS total FROM procedure_versions WHERE legacy_post_id IS NOT NULL');
-        $status['mapped_versions'] = (int) ($this->db->single()->total ?? 0);
-        $status['unmapped_posts'] = max(0, $status['total_posts'] - $status['mapped_versions']);
+        $filters = $this->normalizeDashboardFilters($search, $filters);
 
-        return $status;
+        $sql = 'SELECT
+                    p.id,
+                    p.procedure_code,
+                    p.title,
+                    p.description,
+                    p.status,
+                    p.owner_office,
+                    pv.id AS current_version_id,
+                    pv.version_number AS current_version_number,
+                    pv.document_number AS current_document_number,
+                    pv.change_type AS current_change_type,
+                    pv.status AS current_version_status,
+                    pv.effective_date AS current_effective_date,
+                    pv.file_path AS current_file_path
+                FROM procedures p
+                LEFT JOIN procedure_versions pv ON pv.id = p.current_version_id
+                WHERE p.status IN (' . $this->sqlInList(PdmsAuthoringOptions::terminalProcedureStatuses()) . ')';
+        $sql = $this->applyDashboardFiltersToSql($sql, $filters, true);
+
+        $sql .= ' ORDER BY p.updated_at DESC, p.id DESC';
+
+        $this->db->query($sql);
+        $this->bindDashboardFilters($filters);
+
+        return $this->normalizeStatusCollection($this->db->resultSet(), ['current_version_status']);
+    }
+
+    public function getProcedureDashboardCounts($search = '', array $filters = []) {
+        return [
+            'active_total' => count($this->getProcedureDashboard($search, $filters)),
+            'historical_total' => count($this->getHistoricalProcedureDashboard($search, $filters))
+        ];
+    }
+
+    public function documentNumberExists($documentNumber, $excludeVersionId = null) {
+        $sql = 'SELECT id
+                FROM procedure_versions
+                WHERE document_number = :document_number';
+
+        if ($excludeVersionId !== null) {
+            $sql .= ' AND id <> :exclude_version_id';
+        }
+
+        $sql .= ' LIMIT 1';
+
+        $this->db->query($sql);
+        $this->db->bind(':document_number', $documentNumber);
+
+        if ($excludeVersionId !== null) {
+            $this->db->bind(':exclude_version_id', (int) $excludeVersionId, PDO::PARAM_INT);
+        }
+
+        return (bool) $this->db->single();
     }
 
     public function getHistoryByProcedureId($procedureId) {
@@ -348,237 +432,6 @@ class ProcedureReadModel {
         ];
     }
 
-    public function getProcedureOverviewByLegacyPostId($legacyPostId) {
-        if (!$this->hasPdmsFoundation()) {
-            return null;
-        }
-
-        $this->db->query(
-            'SELECT
-                p.*,
-                pv_current.id AS current_version_id,
-                pv_current.version_number AS current_version_number,
-                pv_current.document_number AS current_document_number,
-                pv_current.change_type AS current_change_type,
-                pv_current.status AS current_version_status,
-                pv_current.effective_date AS current_effective_date,
-                pv_current.file_path AS current_file_path,
-                pv_lookup.id AS mapped_version_id,
-                pv_lookup.version_number AS mapped_version_number,
-                pv_lookup.change_type AS mapped_change_type,
-                pv_lookup.status AS mapped_version_status,
-                pv_lookup.effective_date AS mapped_effective_date
-             FROM procedure_versions pv_lookup
-             INNER JOIN procedures p ON p.id = pv_lookup.procedure_id
-             LEFT JOIN procedure_versions pv_current ON pv_current.id = p.current_version_id
-             WHERE pv_lookup.legacy_post_id = :legacy_post_id
-             LIMIT 1'
-        );
-        $this->db->bind(':legacy_post_id', (int) $legacyPostId, PDO::PARAM_INT);
-        $overview = $this->db->single();
-
-        $overview = $this->applyHistoricalAnchorVersion($overview);
-        $overview = $this->normalizeStatusProperty($overview, 'current_version_status');
-        $overview = $this->normalizeStatusProperty($overview, 'mapped_version_status');
-
-        return $overview;
-    }
-
-    public function getLegacyPostRelationshipSummary($legacyPostId) {
-        $this->db->query(
-            'SELECT
-                p.id,
-                p.title,
-                p.reference_number,
-                p.date_of_effectivity,
-                CASE
-                    WHEN p.id = current_post.id THEN "SELF"
-                    WHEN p.id = current_post.amended_post_id THEN "AMENDS"
-                    WHEN p.id = current_post.superseded_post_id THEN "SUPERSEDES"
-                    WHEN p.amended_post_id = current_post.id THEN "AMENDED_BY"
-                    WHEN p.superseded_post_id = current_post.id THEN "SUPERSEDED_BY"
-                    ELSE "RELATED"
-                END AS relationship_type
-             FROM posts current_post
-             INNER JOIN posts p
-                ON p.id = current_post.id
-                OR p.id = current_post.amended_post_id
-                OR p.id = current_post.superseded_post_id
-                OR p.amended_post_id = current_post.id
-                OR p.superseded_post_id = current_post.id
-             WHERE current_post.id = :legacy_post_id
-             ORDER BY p.date_of_effectivity DESC, p.id DESC'
-        );
-        $this->db->bind(':legacy_post_id', (int) $legacyPostId, PDO::PARAM_INT);
-        return $this->db->resultSet();
-    }
-
-    public function getNormalizedPostSnapshot($legacyPostId) {
-        $this->db->query(
-            'SELECT
-                p.id AS legacy_post_id,
-                p.reference_number AS procedure_code,
-                p.reference_number AS document_number,
-                p.title,
-                p.description,
-                p.date_of_effectivity AS effective_date,
-                p.upload_date AS created_at,
-                p.file AS file_path,
-                p.amended_post_id,
-                p.superseded_post_id
-             FROM posts p
-             WHERE p.id = :legacy_post_id'
-        );
-        $this->db->bind(':legacy_post_id', (int) $legacyPostId, PDO::PARAM_INT);
-        $snapshot = $this->db->single();
-
-        if ($snapshot) {
-            $snapshot->inferred_change_type = PdmsAuthoringOptions::inferLegacyChangeTypeFromLinks(
-                $snapshot->amended_post_id ?? null,
-                $snapshot->superseded_post_id ?? null
-            );
-        }
-
-        return $snapshot;
-    }
-
-    public function getPostDetailContext($legacyPostId) {
-        $legacySnapshot = $this->getNormalizedPostSnapshot($legacyPostId);
-        $legacyRelationships = $this->getLegacyPostRelationshipSummary($legacyPostId);
-
-        $context = [
-            'source' => 'legacy',
-            'has_pdms_tables' => $this->hasPdmsFoundation(),
-            'procedure_overview' => null,
-            'history' => [],
-            'relationships' => [],
-            'workflow_actions' => [],
-            'section_history' => [],
-            'legacy_snapshot' => $legacySnapshot,
-            'legacy_relationships' => $legacyRelationships,
-            'legacy_timeline' => $this->buildLegacyTimeline($legacySnapshot, $legacyRelationships)
-        ];
-
-        if (!$context['has_pdms_tables']) {
-            return $context;
-        }
-
-        $procedureOverview = $this->getProcedureOverviewByLegacyPostId($legacyPostId);
-
-        if (!$procedureOverview) {
-            return $context;
-        }
-
-        $history = $this->getHistoryByProcedureId($procedureOverview->id);
-        $relationships = [];
-        $workflowActions = [];
-        $sectionHistory = $this->getSectionHistoryByProcedureId((int) $procedureOverview->id, 12);
-
-        $contextVersionId = null;
-
-        if (!empty($procedureOverview->mapped_version_id)) {
-            $contextVersionId = (int) $procedureOverview->mapped_version_id;
-        } elseif (!empty($procedureOverview->current_version_id)) {
-            $contextVersionId = (int) $procedureOverview->current_version_id;
-        }
-
-        if (!empty($contextVersionId)) {
-            $relationships = $this->getRelationshipSummaryByVersionId($contextVersionId);
-            $workflowActions = $this->getWorkflowActionsByVersionId($contextVersionId);
-        }
-
-        $context['source'] = 'pdms';
-        $context['procedure_overview'] = $procedureOverview;
-        $context['history'] = $history;
-        $context['relationships'] = $relationships;
-        $context['workflow_actions'] = $workflowActions;
-        $context['section_history'] = $sectionHistory;
-
-        return $context;
-    }
-
-    public function getAuthoringMetadataByLegacyPostId($legacyPostId) {
-        $metadata = [
-            'is_mapped' => false,
-            'change_type' => '',
-            'workflow_status' => 'EFFECTIVE',
-            'pdms_relationship_type' => '',
-            'affected_sections' => '',
-            'relationship_remarks' => ''
-        ];
-
-        if (!$this->hasPdmsFoundation()) {
-            return $metadata;
-        }
-
-        $this->db->query(
-            'SELECT pv.id, pv.change_type, pv.status
-             FROM procedure_versions pv
-             WHERE pv.legacy_post_id = :legacy_post_id
-             LIMIT 1'
-        );
-        $this->db->bind(':legacy_post_id', (int) $legacyPostId, PDO::PARAM_INT);
-        $version = $this->db->single();
-
-        if (!$version) {
-            return $metadata;
-        }
-
-        $metadata['is_mapped'] = true;
-        $metadata['change_type'] = $version->change_type ?? '';
-        $metadata['workflow_status'] = PdmsAuthoringOptions::normalizeWorkflowStatus($version->status ?? 'EFFECTIVE', 'EFFECTIVE');
-
-        $this->db->query(
-            'SELECT relationship_type, affected_sections, remarks
-             FROM document_relationships
-             WHERE source_version_id = :source_version_id
-             ORDER BY id DESC
-             LIMIT 1'
-        );
-        $this->db->bind(':source_version_id', (int) $version->id, PDO::PARAM_INT);
-        $relationship = $this->db->single();
-
-        if ($relationship) {
-            $metadata['pdms_relationship_type'] = $relationship->relationship_type ?? '';
-            $metadata['affected_sections'] = $relationship->affected_sections ?? '';
-            $metadata['relationship_remarks'] = $relationship->remarks ?? '';
-        }
-
-        return $metadata;
-    }
-
-    private function buildLegacyTimeline($legacySnapshot, $legacyRelationships) {
-        $timeline = [];
-
-        if ($legacySnapshot) {
-            $timeline[] = (object) [
-                'label' => 'LEGACY_RECORD',
-                'title' => $legacySnapshot->title,
-                'date' => $legacySnapshot->effective_date,
-                'note' => 'Current SOP detail is still sourced from the legacy posts table.'
-            ];
-        }
-
-        foreach ($legacyRelationships as $relationship) {
-            if ($relationship->relationship_type === 'SELF') {
-                continue;
-            }
-
-            $timeline[] = (object) [
-                'label' => $relationship->relationship_type,
-                'title' => $relationship->title,
-                'date' => $relationship->date_of_effectivity,
-                'note' => $relationship->reference_number
-            ];
-        }
-
-        usort($timeline, function ($left, $right) {
-            return strcmp((string) ($right->date ?? ''), (string) ($left->date ?? ''));
-        });
-
-        return $timeline;
-    }
-
     private function getLatestHistoricalAnchorVersion($procedureId) {
         $this->db->query(
             'SELECT
@@ -587,7 +440,6 @@ class ProcedureReadModel {
                 pv.document_number,
                 pv.change_type,
                 pv.summary_of_change,
-                pv.legacy_post_id,
                 pv.status,
                 pv.effective_date,
                 pv.file_path
@@ -622,7 +474,6 @@ class ProcedureReadModel {
         $overview->current_document_number = $anchorVersion->document_number;
         $overview->current_change_type = $anchorVersion->change_type;
         $overview->current_summary_of_change = $anchorVersion->summary_of_change;
-        $overview->current_legacy_post_id = $anchorVersion->legacy_post_id;
         $overview->current_version_status = PdmsAuthoringOptions::normalizeWorkflowStatus($anchorVersion->status, $anchorVersion->status);
         $overview->current_effective_date = $anchorVersion->effective_date;
         $overview->current_file_path = $anchorVersion->file_path;

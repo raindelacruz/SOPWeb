@@ -13,12 +13,6 @@ class ProcedureVersion {
         return $this->db->single();
     }
 
-    public function getByLegacyPostId($legacyPostId) {
-        $this->db->query('SELECT * FROM procedure_versions WHERE legacy_post_id = :legacy_post_id');
-        $this->db->bind(':legacy_post_id', (int) $legacyPostId, PDO::PARAM_INT);
-        return $this->db->single();
-    }
-
     public function getByProcedureId($procedureId) {
         $this->db->query(
             'SELECT *
@@ -46,17 +40,16 @@ class ProcedureVersion {
     public function create($data) {
         $this->db->query(
             'INSERT INTO procedure_versions
-                (procedure_id, legacy_post_id, version_number, document_number, title, summary_of_change, change_type, effective_date,
+                (procedure_id, version_number, document_number, title, summary_of_change, change_type, effective_date,
                  registration_date, status, file_path, based_on_version_id, created_by, registered_by)
              VALUES
-                (:procedure_id, :legacy_post_id, :version_number, :document_number, :title, :summary_of_change, :change_type, :effective_date,
+                (:procedure_id, :version_number, :document_number, :title, :summary_of_change, :change_type, :effective_date,
                  :registration_date, :status, :file_path, :based_on_version_id, :created_by, :registered_by)'
         );
         $this->db->bind(':registration_date', $data['registration_date'] ?? date('Y-m-d'));
         $this->db->bind(':registered_by', $data['registered_by'] ?? $data['created_by'] ?? null);
 
         $this->db->bind(':procedure_id', (int) $data['procedure_id'], PDO::PARAM_INT);
-        $this->db->bind(':legacy_post_id', $data['legacy_post_id'] ?? null);
         $this->db->bind(':version_number', $data['version_number']);
         $this->db->bind(':document_number', $data['document_number'] ?? null);
         $this->db->bind(':title', $data['title']);

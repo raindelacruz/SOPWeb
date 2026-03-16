@@ -27,13 +27,11 @@ function assertFileNotContains($path, $needle, $message) {
 function runRegressionSuite() {
     $migrationPath = __DIR__ . '/../database/migrations/2026_03_13_000005_drop_approval_compatibility_columns.sql';
     $authoringServicePath = __DIR__ . '/../app/models/ProcedureAuthoringService.php';
-    $syncServicePath = __DIR__ . '/../app/models/ProcedureSyncService.php';
     $versionModelPath = __DIR__ . '/../app/models/ProcedureVersion.php';
     $workflowActionPath = __DIR__ . '/../app/models/WorkflowAction.php';
     $readModelPath = __DIR__ . '/../app/models/ProcedureReadModel.php';
     $procedureShowViewPath = __DIR__ . '/../app/views/procedures/show.php';
     $procedureVersionViewPath = __DIR__ . '/../app/views/procedures/version.php';
-    $postShowViewPath = __DIR__ . '/../app/views/posts/show.php';
 
     assertFileContains(
         $migrationPath,
@@ -72,18 +70,6 @@ function runRegressionSuite() {
     );
 
     assertFileNotContains(
-        $syncServicePath,
-        'approval_date',
-        'ProcedureSyncService should no longer reference approval_date after Phase D.'
-    );
-
-    assertFileNotContains(
-        $syncServicePath,
-        'approved_by',
-        'ProcedureSyncService should no longer reference approved_by after Phase D.'
-    );
-
-    assertFileNotContains(
         $workflowActionPath,
         '(procedure_version_id, action_type,',
         'WorkflowAction model should no longer insert into the legacy action_type column after Phase D.'
@@ -114,15 +100,19 @@ function runRegressionSuite() {
     );
 
     assertFileContains(
-        $postShowViewPath,
-        '$action->lifecycle_action_type',
-        'Legacy post detail PDMS panel should render lifecycle_action_type directly after Phase D.'
-    );
-
-    assertFileContains(
         $versionModelPath,
         'registration_date, status, file_path, based_on_version_id, created_by, registered_by)',
         'ProcedureVersion should be registry-only for version inserts after Phase D.'
+    );
+
+    assertTrue(
+        file_exists(__DIR__ . '/../app/models/ProcedureSyncService.php') === false,
+        'ProcedureSyncService should be removed during the PDMS-only cleanup sweep.'
+    );
+
+    assertTrue(
+        file_exists(__DIR__ . '/../app/views/posts/show.php') === false,
+        'Legacy post detail views should be removed during the PDMS-only cleanup sweep.'
     );
 
     echo "Phase D cutover regression: OK\n";

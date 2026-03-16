@@ -27,7 +27,6 @@ function assertFileNotContains($path, $needle, $message) {
 
 function runRegressionSuite() {
     $helperPath = __DIR__ . '/../app/helpers/pdms_authoring_options.php';
-    $syncServicePath = __DIR__ . '/../app/models/ProcedureSyncService.php';
     $versionModelPath = __DIR__ . '/../app/models/ProcedureVersion.php';
 
     assertTrue(
@@ -47,21 +46,14 @@ function runRegressionSuite() {
     );
 
     assertFileContains(
-        $syncServicePath,
-        'PdmsAuthoringOptions::controllingWorkflowStatuses()',
-        'ProcedureSyncService fallback current-version recovery should use registry-only controlling statuses.'
-    );
-
-    assertFileNotContains(
-        $syncServicePath,
-        'WHEN status = "APPROVED" THEN 1',
-        'ProcedureSyncService should no longer preserve APPROVED ordering in controlling-version fallback.'
-    );
-
-    assertFileContains(
         $versionModelPath,
         'PdmsAuthoringOptions::controllingWorkflowStatuses()',
         'ProcedureVersion controlling candidates should use the registry-only controlling set.'
+    );
+
+    assertTrue(
+        file_exists(__DIR__ . '/../app/models/ProcedureSyncService.php') === false,
+        'Controlling-status cleanup should remove the retired legacy sync service.'
     );
 
     echo "Registry controlling status regression: OK\n";

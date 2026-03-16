@@ -2,7 +2,7 @@
 
 $scripts = [
     __DIR__ . '/regression_pdms_semantics.php',
-    __DIR__ . '/regression_legacy_compatibility_gate.php',
+    __DIR__ . '/regression_legacy_write_retirement.php',
     __DIR__ . '/regression_terminal_pointer_clearing.php',
     __DIR__ . '/regression_mapped_legacy_redirect.php',
     __DIR__ . '/regression_authoring_status_validation.php',
@@ -10,13 +10,18 @@ $scripts = [
     __DIR__ . '/regression_procedure_master_status_model.php',
     __DIR__ . '/regression_registry_controlling_statuses.php',
     __DIR__ . '/regression_registry_first_writes.php',
+    __DIR__ . '/regression_lifecycle_service_flows.php',
+    __DIR__ . '/regression_controller_write_flows.php',
     __DIR__ . '/regression_phase_c_cleanup.php',
     __DIR__ . '/regression_phase_d_cutover.php',
     __DIR__ . '/regression_phase_d_rollout_assets.php',
     __DIR__ . '/regression_phase_d_local_commands.php',
     __DIR__ . '/regression_phase_d_data_normalization.php',
-    __DIR__ . '/regression_sync_relationship_fallbacks.php',
     __DIR__ . '/regression_section_history_surface.php',
+    __DIR__ . '/regression_dashboard_historical_access.php',
+    __DIR__ . '/regression_mapped_post_context_pdms_authority.php',
+    __DIR__ . '/regression_authoring_legacy_mirror_minimized.php',
+    __DIR__ . '/regression_legacy_bridge_boundary.php',
     __DIR__ . '/regression_registry_schema_aliases.php'
 ];
 

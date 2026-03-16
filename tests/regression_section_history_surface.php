@@ -10,12 +10,10 @@ function runRegressionSuite() {
     $readModelPath = __DIR__ . '/../app/models/ProcedureReadModel.php';
     $procedureShowPath = __DIR__ . '/../app/views/procedures/show.php';
     $procedureVersionPath = __DIR__ . '/../app/views/procedures/version.php';
-    $postShowPath = __DIR__ . '/../app/views/posts/show.php';
 
     $readModel = file_get_contents($readModelPath);
     $procedureShow = file_get_contents($procedureShowPath);
     $procedureVersion = file_get_contents($procedureVersionPath);
-    $postShow = file_get_contents($postShowPath);
 
     assertContains(
         'public function getSectionChangeLogByVersionId($versionId)',
@@ -42,11 +40,9 @@ function runRegressionSuite() {
         $procedureVersion,
         'Procedure version detail should render a Section Lineage panel.'
     );
-    assertContains(
-        'Section Lineage',
-        $postShow,
-        'Mapped legacy SOP detail should render a Section Lineage panel.'
-    );
+    if (file_exists(__DIR__ . '/../app/views/posts/show.php')) {
+        throw new RuntimeException('Legacy post detail view should be removed during the PDMS-only cleanup sweep.');
+    }
 
     echo "Section history surface regression: OK\n";
 }

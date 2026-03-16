@@ -10,9 +10,7 @@
     $showWorkflowLane = !empty($data['show_workflow_lane']);
     $isHistoricalProcedure = in_array(($overview->status ?? ''), ['SUPERSEDED', 'RESCINDED', 'ARCHIVED'], true);
     $isHistoricalAnchorVersion = !empty($overview->historical_anchor_version);
-    $encodePostId = function ($id) {
-        return rtrim(strtr(base64_encode((string) $id), '+/', '-_'), '=');
-    };
+    $isAdmin = isset($_SESSION['user_role']) && in_array($_SESSION['user_role'], ['admin', 'super_admin'], true);
     $status = $overview->current_version_status ?? 'UNMAPPED';
     $statusClass = 'secondary';
 
@@ -23,6 +21,25 @@
     } elseif ($status === 'SUPERSEDED') {
         $statusClass = 'danger';
     }
+
+    $formatLifecycleAction = function ($actionType) {
+        $actionType = strtoupper((string) $actionType);
+        $labels = [
+            'PDMS_REGISTER_PROCEDURE' => 'Procedure Registered',
+            'PDMS_REGISTER_REVISION' => 'Revision Registered',
+            'PDMS_REGISTERED_REPLACEMENT' => 'Previous Version Replaced',
+            'PDMS_REGISTERED_SUPERSESSION' => 'Procedure Superseded',
+            'PDMS_RESCIND' => 'Procedure Rescinded',
+            'PDMS_MARK_EFFECTIVE' => 'Marked Effective',
+            'PDMS_ARCHIVE_VERSION' => 'Version Archived'
+        ];
+
+        if (isset($labels[$actionType])) {
+            return $labels[$actionType];
+        }
+
+        return ucwords(strtolower(str_replace('_', ' ', $actionType)));
+    };
 ?>
 
 <div class="container mt-4">
@@ -38,16 +55,13 @@
         <div class="card-body">
             <div class="d-flex flex-wrap mb-4">
                 <a href="<?php echo URLROOT; ?>/procedures" class="btn btn-outline-secondary mr-2 mb-2">Back to Dashboard</a>
-                <?php if (!empty($overview->current_file_path)): ?>
-                    <a href="<?php echo URLROOT; ?>../uploads/<?php echo rawurlencode($overview->current_file_path); ?>" target="_blank" class="btn btn-info mr-2 mb-2"><?php echo $isHistoricalProcedure ? 'Open Historical Anchor PDF' : 'Open Current PDF'; ?></a>
+                <?php if (!empty($overview->current_file_path) && !empty($overview->current_version_id)): ?>
+                    <a href="<?php echo URLROOT; ?>/procedures/file/<?php echo (int) $overview->current_version_id; ?>" target="_blank" class="btn btn-info mr-2 mb-2"><?php echo $isHistoricalProcedure ? 'Open Historical Anchor PDF' : 'Open Current PDF'; ?></a>
                 <?php endif; ?>
                 <?php if (!empty($overview->current_version_id)): ?>
                     <a href="<?php echo URLROOT; ?>/procedures/version/<?php echo (int) $overview->current_version_id; ?>" class="btn btn-outline-info mr-2 mb-2"><?php echo $isHistoricalProcedure ? 'Open Historical Anchor Version' : 'Open Current Version Detail'; ?></a>
                 <?php endif; ?>
-                <?php if (!empty($overview->current_legacy_post_id)): ?>
-                    <a href="<?php echo URLROOT; ?>/posts/show/<?php echo $encodePostId($overview->current_legacy_post_id); ?>" class="btn btn-outline-secondary mr-2 mb-2">Open Legacy Mirror</a>
-                <?php endif; ?>
-                <?php if (isset($_SESSION['user_role']) && in_array($_SESSION['user_role'], ['admin', 'super_admin'], true) && !in_array(($overview->status ?? ''), ['SUPERSEDED', 'RESCINDED', 'ARCHIVED'], true)): ?>
+                <?php if ($isAdmin && !in_array(($overview->status ?? ''), ['SUPERSEDED', 'RESCINDED', 'ARCHIVED'], true)): ?>
                     <a href="<?php echo URLROOT; ?>/procedures/edit/<?php echo (int) $overview->id; ?>" class="btn btn-outline-primary mr-2 mb-2">Edit Procedure</a>
                     <a href="<?php echo URLROOT; ?>/procedures/issue/<?php echo (int) $overview->id; ?>" class="btn btn-primary mr-2 mb-2">Register Revision</a>
                     <?php if (!empty($data['can_supersede'])): ?>
@@ -60,7 +74,52 @@
             </div>
 
             <div class="lifecycle-callout">
-                <strong>PDMS registry control:</strong> register revisions, rescissions, and supersessions from this procedure page first. The legacy SOP entry remains available as a mirrored compatibility record for traceability.
+                <?php if ($isAdmin): ?>
+                    <strong>Admin tools:</strong> use this page to register revisions, rescind the procedure, or create a superseding procedure. This record is managed directly in PDMS.
+                <?php else: ?>
+                    <strong>Record status:</strong> this procedure is maintained in PDMS. You can review the current or historical record here.
+                <?php endif; ?>
+            </div>
+
+            <div class="clarity-band">
+                <div class="clarity-card <?php echo $isHistoricalProcedure ? 'is-historical' : (($overview->current_version_status ?? '') === 'REGISTERED' ? 'is-registered' : 'is-current'); ?>">
+                    <span class="eyebrow-label">What This Record Means</span>
+                    <span class="value">
+                        <?php
+                            if ($isHistoricalProcedure) {
+                                echo 'Historical Procedure';
+                            } elseif (($overview->current_version_status ?? '') === 'REGISTERED') {
+                                echo 'Registered, Not Yet Controlling';
+                            } else {
+                                echo 'Active Controlling Procedure';
+                            }
+                        ?>
+                    </span>
+                    <p>
+                        <?php
+                            if ($isHistoricalProcedure) {
+                                echo 'This record stays visible for audit history. It is no longer the procedure to use for active operations.';
+                            } elseif (($overview->current_version_status ?? '') === 'REGISTERED') {
+                                echo 'The procedure has been recorded in the registry, but another effective record is still the operative controlling procedure.';
+                            } else {
+                                echo 'This procedure currently represents the operative PDMS record for day-to-day use.';
+                            }
+                        ?>
+                    </p>
+                </div>
+                <div class="clarity-card <?php echo $isHistoricalAnchorVersion ? 'is-historical' : 'is-legacy'; ?>">
+                    <span class="eyebrow-label"><?php echo $isHistoricalAnchorVersion ? 'How To Read This Page' : 'Source Of Record'; ?></span>
+                    <span class="value"><?php echo $isHistoricalAnchorVersion ? 'Showing Latest Historical Version' : 'Live PDMS Record'; ?></span>
+                    <p>
+                        <?php
+                            if ($isHistoricalAnchorVersion) {
+                                echo 'The links on this page point to the latest historical version so you can review the retired record clearly.';
+                            } else {
+                                echo 'This page is driven directly from PDMS, which is the source of truth for lifecycle, lineage, and history.';
+                            }
+                        ?>
+                    </p>
+                </div>
             </div>
 
             <div class="detail-grid">
@@ -80,23 +139,19 @@
                     <span class="label">Procedure Status</span>
                     <span><?php echo htmlspecialchars($overview->status ?: 'Unknown'); ?></span>
                 </div>
-                <div class="detail-item">
-                    <span class="label">Legacy Mirror</span>
-                    <span><?php echo !empty($overview->current_legacy_post_id) ? 'Available' : 'Not linked'; ?></span>
-                </div>
             </div>
 
             <?php if (($overview->current_version_status ?? '') === 'REGISTERED'): ?>
                 <div class="alert alert-info mt-4 mb-0">
-                    This procedure is registered in the SOP registry but is not yet marked as the effective controlling version.
+                    This procedure has been recorded in the registry, but it is not yet the active version for day-to-day use.
                 </div>
             <?php endif; ?>
 
             <?php if (in_array(($overview->status ?? ''), ['SUPERSEDED', 'RESCINDED', 'ARCHIVED'], true)): ?>
                 <div class="alert alert-secondary mt-4 mb-0">
-                    This procedure is now historical. Review its version history and lifecycle trail for audit purposes, and use the replacement or active procedure record for ongoing operational use.
+                    This procedure is now historical. Review it for audit or reference purposes, and use the replacement or active procedure for current work.
                     <?php if ($isHistoricalAnchorVersion): ?>
-                        The buttons and fields above now use the latest historical version as an audit anchor rather than treating any version as the current controlling record.
+                        The buttons and fields above now use the latest historical version for reference instead of treating any version as the active controlling record.
                     <?php endif; ?>
                 </div>
             <?php endif; ?>
@@ -159,7 +214,7 @@
                         <?php foreach ($workflowActions as $action): ?>
                             <li class="list-group-item px-0">
                                 <div class="d-flex justify-content-between flex-wrap">
-                                    <strong><?php echo htmlspecialchars($action->lifecycle_action_type); ?></strong>
+                                    <strong><?php echo htmlspecialchars($formatLifecycleAction($action->lifecycle_action_type ?? '')); ?></strong>
                                     <span class="text-muted"><?php echo htmlspecialchars($action->acted_at); ?></span>
                                 </div>
                                 <div><?php echo htmlspecialchars(($action->from_status ?: 'None') . ' -> ' . ($action->to_status ?: 'None')); ?></div>

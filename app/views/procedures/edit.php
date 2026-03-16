@@ -6,7 +6,7 @@
     <div class="page-hero">
         <span class="badge badge-light px-3 py-2 mb-3"><?php echo htmlspecialchars($data['procedure']->procedure_code ?? ''); ?></span>
         <h2>Edit Procedure</h2>
-        <p>Update the procedure master metadata and the currently controlling version details without falling back to the legacy SOP form.</p>
+        <p>Update the procedure master metadata and the currently controlling version details from the PDMS registry surface.</p>
     </div>
 
     <div class="card surface-card">
@@ -17,7 +17,7 @@
                 </div>
             <?php endif; ?>
 
-            <form action="<?php echo URLROOT; ?>/procedures/edit/<?php echo (int) ($data['procedure']->id ?? 0); ?>" method="post" enctype="multipart/form-data">
+            <form action="<?php echo URLROOT; ?>/procedures/edit/<?php echo (int) ($data['procedure']->id ?? 0); ?>" method="post">
                 <?php echo csrf_input(); ?>
 
                 <div class="form-row">
@@ -45,12 +45,15 @@
 
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label class="font-weight-bold" for="category">Category</label>
-                        <input type="text" name="category" class="form-control" value="<?php echo htmlspecialchars($data['category']); ?>">
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label class="font-weight-bold" for="owner_office">Owner Office</label>
-                        <input type="text" name="owner_office" class="form-control" value="<?php echo htmlspecialchars($data['owner_office']); ?>">
+                        <label class="font-weight-bold" for="responsibility_center">Responsibility Center</label>
+                        <select name="responsibility_center" class="form-control">
+                            <option value="">Select responsibility center</option>
+                            <?php foreach (($data['responsibility_center_options'] ?? []) as $option): ?>
+                                <option value="<?php echo htmlspecialchars($option); ?>" <?php echo (($data['responsibility_center'] ?? '') === $option) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($option); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
 
@@ -76,15 +79,20 @@
                     </div>
 
                     <div class="form-group mb-0">
-                        <label class="font-weight-bold" for="file">Replace Current PDF</label>
-                        <input type="file" name="file" class="form-control-file <?php echo (!empty($data['file_err'])) ? 'is-invalid' : ''; ?>" accept=".pdf">
-                        <input type="hidden" name="existing_file" value="<?php echo htmlspecialchars($data['file']); ?>">
+                        <label class="font-weight-bold" for="file">Current PDF File Path</label>
+                        <div class="input-group pdf-picker-field" data-pdf-picker data-picker-url="<?php echo URLROOT; ?>/procedures/pdfCatalog">
+                            <input type="text" name="file" class="form-control <?php echo (!empty($data['file_err'])) ? 'is-invalid' : ''; ?>" value="<?php echo htmlspecialchars($data['file']); ?>" placeholder="Choose a PDF file" readonly data-pdf-path-input>
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-secondary" data-pdf-picker-open>Locate File</button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted">Choose the server PDF for the current controlling version.</small>
                         <span class="invalid-feedback d-block"><?php echo $data['file_err']; ?></span>
 
-                        <?php if (!empty($data['file'])): ?>
+                        <?php if (!empty($data['file']) && !empty($data['procedure']->current_version_id)): ?>
                             <p class="mt-2 mb-0">
                                 Current File:
-                                <a href="<?php echo URLROOT; ?>../uploads/<?php echo rawurlencode($data['file']); ?>" target="_blank">
+                                <a href="<?php echo URLROOT; ?>/procedures/file/<?php echo (int) $data['procedure']->current_version_id; ?>" target="_blank">
                                     <?php echo htmlspecialchars($data['file']); ?>
                                 </a>
                             </p>

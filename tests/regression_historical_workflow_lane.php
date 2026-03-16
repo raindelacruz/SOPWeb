@@ -41,6 +41,11 @@ function runRegressionSuite() {
         'Procedure detail should no longer render a workflow lane heading in the registry-first UI.'
     );
 
+    assertTrue(
+        strpos($contents, 'What This Record Means') !== false,
+        'Procedure detail should explain the meaning of current, registered, and historical procedure states directly in the registry-first UI.'
+    );
+
     echo "Historical workflow lane regression: OK\n";
 }
 

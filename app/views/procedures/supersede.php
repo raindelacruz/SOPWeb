@@ -24,7 +24,7 @@
                 Completing this flow creates a new procedure and marks the current procedure as historical through a normalized <strong>SUPERSEDES</strong> relationship.
             </div>
 
-            <form action="<?php echo URLROOT; ?>/procedures/supersede/<?php echo (int) $procedure->id; ?>" method="post" enctype="multipart/form-data">
+            <form action="<?php echo URLROOT; ?>/procedures/supersede/<?php echo (int) $procedure->id; ?>" method="post">
                 <?php echo csrf_input(); ?>
 
                 <div class="form-row">
@@ -54,18 +54,21 @@
 
                 <div class="form-row">
                     <div class="form-group col-md-6">
-                        <label class="font-weight-bold" for="category">Category</label>
-                        <input type="text" name="category" class="form-control" value="<?php echo htmlspecialchars($data['category']); ?>">
-                    </div>
-                    <div class="form-group col-md-6">
-                        <label class="font-weight-bold" for="owner_office">Owner Office</label>
-                        <input type="text" name="owner_office" class="form-control" value="<?php echo htmlspecialchars($data['owner_office']); ?>">
+                        <label class="font-weight-bold" for="responsibility_center">Responsibility Center</label>
+                        <select name="responsibility_center" class="form-control">
+                            <option value="">Select responsibility center</option>
+                            <?php foreach (($data['responsibility_center_options'] ?? []) as $option): ?>
+                                <option value="<?php echo htmlspecialchars($option); ?>" <?php echo (($data['responsibility_center'] ?? '') === $option) ? 'selected' : ''; ?>>
+                                    <?php echo htmlspecialchars($option); ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                 </div>
 
                 <div class="form-row">
                     <div class="form-group col-md-4">
-                        <label class="font-weight-bold" for="status">Registry State (Compatibility)</label>
+                        <label class="font-weight-bold" for="status">Registry State</label>
                         <select name="status" class="form-control <?php echo !empty($data['status_err']) ? 'is-invalid' : ''; ?>">
                             <?php foreach (['REGISTERED', 'EFFECTIVE'] as $statusOption): ?>
                                 <option value="<?php echo htmlspecialchars($statusOption); ?>" <?php echo $data['status'] === $statusOption ? 'selected' : ''; ?>>
@@ -81,8 +84,14 @@
                         <span class="invalid-feedback"><?php echo htmlspecialchars($data['effective_date_err']); ?></span>
                     </div>
                     <div class="form-group col-md-4">
-                        <label class="font-weight-bold" for="file">Upload PDF</label>
-                        <input type="file" name="file" class="form-control-file <?php echo !empty($data['file_err']) ? 'is-invalid' : ''; ?>" accept=".pdf">
+                        <label class="font-weight-bold" for="file">PDF File Path</label>
+                        <div class="input-group pdf-picker-field" data-pdf-picker data-picker-url="<?php echo URLROOT; ?>/procedures/pdfCatalog">
+                            <input type="text" name="file" class="form-control <?php echo !empty($data['file_err']) ? 'is-invalid' : ''; ?>" value="<?php echo htmlspecialchars($data['file']); ?>" placeholder="Choose a PDF file" readonly data-pdf-path-input>
+                            <div class="input-group-append">
+                                <button type="button" class="btn btn-outline-secondary" data-pdf-picker-open>Locate File</button>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted">Choose from the configured server PDF folders.</small>
                         <span class="invalid-feedback d-block"><?php echo htmlspecialchars($data['file_err']); ?></span>
                     </div>
                 </div>

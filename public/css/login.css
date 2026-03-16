@@ -1,0 +1,53 @@
+body, html {
+    height: 100%;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: white; /* Light background */
+}
+
+.container {
+    max-width: 100%;
+    padding: 15px;
+}
+
+.card {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+    padding: 20px;
+    min-width: 320px; /* Prevents the card from getting too narrow */
+}
+
+h2 {
+    font-size: 2rem; /* Make the title a bit larger */
+}
+
+p {
+    font-size: 1.1rem;
+}
+
+.form-control-lg {
+    font-size: 1.2rem; /* Adjust font size for inputs */
+    padding: 15px; /* More padding for easier typing */
+}
+
+.btn-block {
+    width: 100%;
+    font-size: 1.1rem; /* Larger button text */
+}
+
+.invalid-feedback {
+    font-size: 0.9rem;
+}
+
+/* Larger screen adjustments */
+@media (min-width: 768px) {
+    .card {
+        width: 50%; /* Adjust card width for larger screens */
+        margin: 0 auto; /* Center the card */
+    }
+
+    h2, p {
+        text-align: center; /* Center align text for larger displays */
+    }
+}

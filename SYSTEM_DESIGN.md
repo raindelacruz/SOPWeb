@@ -6,117 +6,62 @@ SOPWeb - Procedural Document Management System Design
 
 ## Design Objective
 
-SOPWeb is evolving from a legacy SOP repository into a document registry for already-approved Standard Operating Procedures (SOPs).
+SOPWeb is a registry for already-approved SOPs.
 
-The system must preserve:
+The design must support:
 
-- the currently active controlling procedure
-- version history
-- amendment, revision, supersession, and rescission chains
-- section-level lineage where applicable
-- executive-friendly access to active procedures
+- one clear current controlling version per active procedure
+- permanent historical retention
+- normalized amendment, revision, supersession, rescission, reference, and derivation lineage
+- section-level lineage where captured
+- clear separation between active and historical records
 
-The system is not intended to approve procedures inside the application. Any SOP registered here is assumed to have been approved outside the system.
+The system is not intended to run an internal approval workflow.
 
 ## Current Implementation Stage
 
-The repository has completed an additive Phase 1-8 foundation and now operates as a hybrid system:
+The repository is now in the PDMS-only stage.
 
-- legacy authoring still happens through `posts`
-- PDMS records are synchronized into procedural tables
-- read-oriented PDMS screens already exist
-- migration/backfill/cleanup tools already exist
+Completed cleanup state:
 
-The next design concern is no longer whether PDMS tables should exist. They do. The focus is now on aligning the code and UI to the clarified registry intent: lineage recording, current-version control, edit restrictions, and read-friendly access.
+- PDMS tables and services are the only active procedure-management path
+- retired legacy post browsing, model, controller, and sync code has been removed
+- the remaining major operational step is applying the March 14, 2026 bridge-drop migration to the live database
 
-## Core Domain Separation
+## Core Domain Model
 
 ### Procedure Master
 
-Represents the enduring identity of a procedure.
+Represents the long-lived identity of a procedure.
 
-Current implementation:
+Stored in:
 
-- stored in `procedures`
-- tracks `current_version_id`
-- uses procedure-level state such as `ACTIVE`, `SUPERSEDED`, `RESCINDED`, and `ARCHIVED`
-- may also store a `legacy_post_id` bridge during migration
+- `procedures`
+
+Responsibilities:
+
+- hold procedure identity fields
+- track `current_version_id`
+- carry master-level status such as `ACTIVE`, `SUPERSEDED`, `RESCINDED`, or `ARCHIVED`
 
 ### Procedure Version
 
-Represents a specific registered procedure version.
+Represents a registered version of a procedure.
 
-Current implementation:
+Stored in:
 
-- stored in `procedure_versions`
-- may map back to a legacy post via `legacy_post_id`
-- carries status, change type, effective date, and file path
+- `procedure_versions`
 
-## Lifecycle Goals
+Responsibilities:
 
-The target registry lifecycle is:
+- carry version number and document number
+- record change type and lifecycle status
+- hold effectivity and file-path metadata
+- link to the version it is based on when applicable
 
-1. register original procedure record
-2. register amendment with affected sections
-3. register partial revision
-4. register full revision
-5. register superseding procedure
-6. register rescission where needed
-7. record references and derivations
-8. preserve permanent history
+## Lifecycle Model
 
-## Implemented Data Model
-
-### procedures
-
-Current implemented purpose:
-
-- groups versions by long-term procedure identity
-- stores `current_version_id`
-- supports executive/current-procedure views
-
-### procedure_versions
-
-Current implemented purpose:
-
-- stores each synchronized or authored procedure version
-- tracks change type, status, effectivity, and source file
-- uses `registration_date` and `registered_by` as the canonical registration metadata fields after the Phase D hard cutover
-
-### document_relationships
-
-Current implemented purpose:
-
-- stores normalized version-to-version relationships
-- supports `AMENDS`, `REVISES`, `SUPERSEDES`, `RESCINDS`, `REFERENCES`, `DERIVED_FROM`
-
-### workflow_actions
-
-Current implemented purpose:
-
-- stores version lifecycle and sync transition history
-- uses `lifecycle_action_type` as the canonical registry-event label after the Phase D hard cutover
-
-### procedure_sections
-
-Current implemented purpose:
-
-- stores reusable section identities per procedure as an additive foundation for structured amendment lineage
-
-### section_change_log
-
-Current implemented purpose:
-
-- records section-level change entries tied to procedure versions and relationship context when affected sections are supplied
-
-### Not Yet Implemented
-
-- full cutover away from legacy compatibility create/edit as a routine admin path
-- distinct executive-viewer role separation, if the product decides that role split is needed
-
-## Registry State Model
-
-Target version states should reflect registry lifecycle, not approval workflow:
+Canonical version states:
 
 ```text
 REGISTERED
@@ -126,27 +71,22 @@ RESCINDED
 ARCHIVED
 ```
 
-Current implementation note:
-
-- the live code now normalizes version status into registry states in authoring, sync, and read surfaces
-- legacy approval-style values remain readable as migration artifacts in data normalization, but they are no longer part of the active schema contract
-- controlling-version fallback now treats `EFFECTIVE` as the sole controlling registry state for recovery logic
-- `registration_date`, `registered_by`, and `lifecycle_action_type` are now required canonical registry fields in the live model
-- `procedures.status` remains the master-level state field; active procedures use `ACTIVE`, while terminal procedure masters use `SUPERSEDED`, `RESCINDED`, or `ARCHIVED`
-
-Rules that the implementation must uphold:
+Rules:
 
 1. Only one version may be current for a procedure.
-2. Current-version selection must be driven by registry lifecycle, not in-system approval.
-3. Superseded and rescinded records must not be editable.
+2. Only `EFFECTIVE` may be controlling.
+3. Historical and terminal records must not be editable.
 4. Lifecycle changes must be logged.
-5. Historical records must remain viewable.
-6. Terminal procedures should not continue to present a controlling-version pointer; historical views may use a latest-version audit anchor instead.
-7. A revision or superseding record should automatically preserve the previous controlling record as history.
+5. Terminal procedure masters must not retain a controlling-version pointer.
+6. Older versions remain available through PDMS history/detail views.
 
-## Relationship Logic
+## Relationship Model
 
-The target relationship model remains:
+Authoritative relationship storage:
+
+- `document_relationships`
+
+Supported relationship types:
 
 - `AMENDS`
 - `REVISES`
@@ -155,101 +95,54 @@ The target relationship model remains:
 - `REFERENCES`
 - `DERIVED_FROM`
 
-Current implementation note:
+Affected-section lineage is recorded through:
 
-- legacy `amended_post_id` and `superseded_post_id` still drive much of the initial relationship generation
-- newer sync behavior uses explicit relationship management metadata when available so curated PDMS links are less likely to be replaced during re-sync
-- read surfaces should present normalized PDMS relationships as the primary lineage view and treat legacy relationship displays as compatibility context
+- `procedure_sections`
+- `section_change_log`
 
-## Current Authoring Policy Surface
+## Current Authoring Surface
 
-Current implementation note:
+Primary runtime components:
 
-- PDMS authoring choices and bridge-safe legacy compatibility choices are now centralized in a shared policy helper rather than duplicated across controllers, service normalization, and view option arrays
-- the shared policy surface currently defines allowed change types, allowed relationship types, status normalization, target/affected-section requirements, UI helper metadata, and validation/error-message copy
-- PDMS create and revision-registration controller validation now reuse shared authoring validation flow, while legacy compatibility create/edit validation now reuse shared bridge-safe validation flow
-- deprecated promote/transition controller remnants have been removed; the remaining route-level compatibility alias is `Procedures::issue()` forwarding to `registerRevision()`
-- future lifecycle-policy changes should update the shared policy surface and the regression checks together rather than patching individual controllers or views in isolation
+- `ProcedureAuthoringService`
+- `ProcedureReadModel`
+- `Procedures` controller
+- PDMS procedure create, issue, show, supersede, rescind, edit, and version views
 
-## Current Views
+Shared authoring policy covers:
 
-Implemented read surfaces:
-
-- SOP detail page with PDMS readiness/history context
-- current procedures dashboard
-- procedure history/detail page
-- section-lineage panels on procedure and mapped SOP detail pages
-
-These should be treated as the current executive-friendly access layer, even though the final executive dashboard vision is broader.
-
-## Target UI / User Flow
-
-The target UI should behave like a document registry:
-
-1. Register new procedure
-2. Register amendment or revision against the current active version
-3. Capture affected sections when the change is section-specific
-4. Register superseding or rescinding procedure when lifecycle requires it
-5. Automatically preserve prior versions as history and clearly mark the current active one
-6. Make current active procedures easier to access than historical versions
-
-## Access Model
-
-Current implemented roles:
-
-- `user`
-- `admin`
-- `super_admin`
-
-Target future roles, if the product needs finer read/write separation, should remain registry-oriented rather than approval-oriented.
-
-Examples:
-
-- records administrator
-- office contributor
-- executive viewer
-- general user
-
-## Migration Strategy
-
-The active transition strategy is:
-
-1. preserve legacy `posts`
-2. synchronize create/edit activity into PDMS tables
-3. backfill older posts in batches
-4. normalize older sync-managed relationships
-5. progressively move behavior and visibility toward PDMS views
-
-Current implementation note:
-
-- unmapped legacy SOP records may still use direct legacy edit for explicit compatibility maintenance, but mapped records and normal lifecycle actions should be routed through PDMS-first screens
-- future cutover work should continue shrinking the legacy compatibility surface and keep amendment/revision registration as the primary lifecycle entry point
-
-This is the current approved path unless a deliberate PDMS-first cutover is planned.
+- change-type options
+- relationship-type options
+- lifecycle-state normalization
+- target-version requirements
+- affected-section requirements
+- UI helper metadata
+- validation and error-message copy
 
 ## Routing Reality
 
-The live application currently uses convention-based dispatch through `core/App.php`.
+Current runtime dispatch uses `core/App.php` and defaults directly into the PDMS procedures surface.
 
-Any future routing refactor should explicitly decide whether to:
+## Migration Position
 
-- keep convention routing
-- adopt the route file pattern
-- remove unused router code
+Repository state:
 
-Do not assume `core/Router.php` is the active runtime router without verifying it.
+- already cleaned for the post-bridge architecture
 
-## Current Design Priorities
+Live-database state:
 
-Before adding new PDMS features, align these areas:
+- pending application of `database/migrations/2026_03_14_000007_drop_legacy_posts_bridge.sql`
 
-1. historical edit locks
-2. registry-state simplification
-3. current-version semantics
-4. section-lineage clarity
-5. documentation accuracy
-6. routing clarity
+After that migration, the runtime and production schema will match fully.
+
+## Design Priorities
+
+1. keep current-version semantics strict
+2. preserve historical lineage
+3. keep procedure-master and version lifecycle states distinct
+4. keep section-lineage reporting trustworthy
+5. keep documentation and regressions aligned with live architecture
 
 ## Purpose of This File
 
-This file describes both the target direction and the current implemented migration architecture so future development does not treat the repository like either a pure legacy system or a fully completed PDMS.
+This file describes the current implemented design target for SOPWeb: a PDMS-only registry with a minimal retired-route compatibility shell and no live legacy data bridge.

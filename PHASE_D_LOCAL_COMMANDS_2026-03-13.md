@@ -52,3 +52,35 @@ C:\xampp\mysql\bin\mysqldump.exe -h localhost -u root --routines --triggers --si
 ```
 
 If the local database password is non-empty, add `--password=your-password` to the MariaDB client commands above.
+
+## Full-Cycle Fixture Reset
+
+Use this when you want to clear the local SOPWeb database and repopulate it with PDMS-first lifecycle coverage for manual or regression-assisted testing.
+
+```powershell
+php .\database\seed_full_cycle_fixture.php
+```
+
+What it resets:
+
+- `users`
+- `activity_logs`
+- `procedures`
+- `procedure_versions`
+- `document_relationships`
+- `workflow_actions`
+- `procedure_sections`
+- `section_change_log`
+- legacy `posts` when the bridge table still exists locally
+
+What it seeds:
+
+- active current procedures
+- amendment and full-revision history
+- archived historical version coverage
+- superseded procedure-master coverage
+- rescinded procedure coverage
+- registered-only pending procedure coverage
+- normalized relationship coverage for `AMENDS`, `REVISES`, `SUPERSEDES`, `RESCINDS`, `REFERENCES`, and `DERIVED_FROM`
+
+The script prints the seeded login accounts and the resulting lifecycle summary after it completes.

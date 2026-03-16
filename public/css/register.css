@@ -1,0 +1,116 @@
+/* Basic styles for the registration page */
+html, body {
+    height: 100%; /* Ensure full height */
+    margin: 0;
+    display: flex;
+    justify-content: center; /* Center content horizontally */
+    align-items: center; /* Center content vertically */
+}
+
+.container {
+    height: 100vh; /* Full viewport height */
+    display: flex;
+    justify-content: center; /* Center content horizontally */
+    align-items: center; /* Center content vertically */
+	padding: 0px; /* Add some horizontal padding */
+}
+
+.card {
+    width: 100%;
+    max-width: 300px; /* Set maximum width for better centering */
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    margin: 0 auto; /* Center the card */
+}
+
+.card-body {
+    background-color: #f8f9fa; /* Light background color */
+    padding: 30px;
+}
+
+h2 {
+    text-align: center;
+    margin-bottom: 10px; /* Reduced margin for better compactness */
+}
+
+p {
+    text-align: center; /* Center text below title */
+    margin-bottom: 20px; /* Space below the description */
+}
+
+.form-group {
+    margin-bottom: 10px; /* Add spacing between form fields */
+}
+
+.form-control {
+    width: 100%; /* Make input field take full width */
+    padding: 10px; /* Adjust padding for comfort */
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-sizing: border-box; /* Ensure padding and borders are included in the width */
+}
+
+/* Add specific styles for input fields */
+input[type="text"],
+input[type="email"],
+input[type="password"] {
+    max-width: 100%; /* Prevent overflow */
+}
+
+.invalid-feedback {
+    color: red;
+    font-size: 0.9rem;
+}
+
+/* Button Styles */
+.btn {
+    padding: 10px;
+    width: 100%;
+    border: none;
+    border-radius: 5px;
+    font-size: 16px; /* Increased font size for better readability */
+}
+
+.btn-success {
+    background-color: #5cb85c;
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #4cae4c;
+}
+
+/* Link Styles */
+.text-center a {
+    color: #007bff; /* Bootstrap primary color */
+}
+
+.text-center a:hover {
+    text-decoration: underline;
+}
+
+/* Media Queries for Responsiveness */
+@media (max-width: 768px) {
+    .card {
+        padding: 20px;
+    }
+
+    .form-control {
+        font-size: 14px; /* Larger font size for better readability */
+    }
+}
+
+@media (max-width: 576px) {
+    .card {
+        padding: 15px;
+    }
+
+    h2 {
+        font-size: 20px;
+    }
+
+    .form-control {
+        font-size: 12px; /* Further adjustment for smaller screens */
+    }
+}

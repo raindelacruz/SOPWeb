@@ -1,0 +1,29 @@
+/* Custom Navbar Styling */
+
+/* General navbar styling */
+.navbar-brand {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #fff;
+}
+
+.navbar-nav .nav-link {
+  font-size: 1.1rem;
+  margin-right: 15px;
+  color: #dcdcdc;
+  transition: color 0.3s ease;
+}
+
+.navbar-nav .nav-link:hover {
+  color: #fff;
+}
+
+/* For mobile devices */
+@media (max-width: 768px) {
+  .navbar-nav {
+    text-align: center;
+  }
+  .navbar-nav .nav-link {
+    margin-bottom: 10px;
+  }
+}

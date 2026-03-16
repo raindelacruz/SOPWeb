@@ -6,17 +6,18 @@ require_once '../libs/PHPMailer/SMTP.php';
 require_once '../libs/PHPMailer/Exception.php';
 
 class App {
-    protected $controller = 'Home'; // Set to an existing default controller
+    protected $controller = 'Procedures';
     protected $method = 'index';     // Default method
     protected $params = [];          // Parameters
 
     public function __construct() {
         $url = $this->parseUrl();
 
-        // Check if the controller exists
         if (isset($url[0]) && file_exists('../app/controllers/' . ucwords($url[0]) . '.php')) {
             $this->controller = ucwords($url[0]);
             unset($url[0]);
+        } else {
+            $url = [];
         }
 
         require_once '../app/controllers/' . $this->controller . '.php';

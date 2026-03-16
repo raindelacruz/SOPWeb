@@ -8,14 +8,6 @@ class PdmsAuthoringOptions {
         return ['REGISTERED', 'EFFECTIVE'];
     }
 
-    public static function legacyWorkflowStatuses() {
-        return ['DRAFT', 'FOR_REVIEW', 'FOR_APPROVAL', 'APPROVED'];
-    }
-
-    public static function recognizedWorkflowStatuses() {
-        return array_merge(self::versionWorkflowStatuses(), self::legacyWorkflowStatuses());
-    }
-
     public static function normalizeWorkflowStatus($status, $default = 'REGISTERED') {
         $status = strtoupper((string) $status);
 
@@ -38,10 +30,6 @@ class PdmsAuthoringOptions {
         return $default;
     }
 
-    public static function isRecognizedWorkflowStatus($status) {
-        return in_array(strtoupper((string) $status), self::recognizedWorkflowStatuses(), true);
-    }
-
     public static function storedControllingWorkflowStatuses() {
         return self::controllingWorkflowStatuses();
     }
@@ -58,10 +46,6 @@ class PdmsAuthoringOptions {
         return ['AMENDMENT', 'PARTIAL_REVISION', 'FULL_REVISION', 'SUPERSEDING_PROCEDURE', 'REFERENCE'];
     }
 
-    public static function legacyCompatibilityChangeTypes() {
-        return ['NEW', 'AMENDMENT', 'PARTIAL_REVISION', 'FULL_REVISION', 'SUPERSEDING_PROCEDURE'];
-    }
-
     public static function createRelationshipTypes() {
         return ['AMENDS', 'REVISES', 'SUPERSEDES', 'RESCINDS', 'REFERENCES', 'DERIVED_FROM'];
     }
@@ -72,10 +56,6 @@ class PdmsAuthoringOptions {
 
     public static function normalizedRelationshipTypes() {
         return ['AMENDS', 'REVISES', 'SUPERSEDES', 'RESCINDS', 'REFERENCES', 'DERIVED_FROM'];
-    }
-
-    public static function legacyCompatibilityRelationshipTypes() {
-        return ['AMENDS', 'REVISES', 'SUPERSEDES'];
     }
 
     public static function defaultRelationshipTypeForChangeType($changeType) {
@@ -152,21 +132,6 @@ class PdmsAuthoringOptions {
         return $changeType === 'SUPERSEDING_PROCEDURE';
     }
 
-    public static function requiresLegacyAmendedTarget($changeType, $relationshipType = '') {
-        $changeType = strtoupper((string) $changeType);
-        $relationshipType = strtoupper((string) $relationshipType);
-
-        return $changeType === 'AMENDMENT' || $relationshipType === 'AMENDS';
-    }
-
-    public static function requiresLegacySupersededTarget($changeType, $relationshipType = '') {
-        $changeType = strtoupper((string) $changeType);
-        $relationshipType = strtoupper((string) $relationshipType);
-
-        return in_array($changeType, ['SUPERSEDING_PROCEDURE', 'RESCISSION'], true)
-            || in_array($relationshipType, ['SUPERSEDES', 'RESCINDS'], true);
-    }
-
     public static function clearsRelationshipForNew($changeType) {
         return strtoupper((string) $changeType) === 'NEW';
     }
@@ -179,56 +144,22 @@ class PdmsAuthoringOptions {
         return ['SUPERSEDED', 'RESCINDED', 'ARCHIVED'];
     }
 
-    public static function inferLegacyChangeTypeFromLinks($amendedTargetId, $supersededTargetId) {
-        if (!empty($supersededTargetId)) {
-            return 'SUPERSEDING_PROCEDURE';
-        }
-
-        if (!empty($amendedTargetId)) {
-            return 'AMENDMENT';
-        }
-
-        return 'NEW';
-    }
-
-    public static function changeTypeUsesAmendedLegacyTarget($changeType) {
-        return in_array(strtoupper((string) $changeType), ['AMENDMENT', 'PARTIAL_REVISION', 'FULL_REVISION', 'REFERENCE'], true);
-    }
-
-    public static function changeTypeUsesSupersededLegacyTarget($changeType) {
-        return in_array(strtoupper((string) $changeType), ['SUPERSEDING_PROCEDURE', 'RESCISSION'], true);
-    }
-
-    public static function changeTypePreservesPreviousCurrentAsEffective($changeType) {
+    public static function changeTypeKeepsPreviousCurrentEffective($changeType) {
         return strtoupper((string) $changeType) === 'AMENDMENT';
     }
 
     public static function replacementStatusForPreviousCurrent($changeType) {
-        return self::changeTypePreservesPreviousCurrentAsEffective($changeType) ? 'EFFECTIVE' : 'SUPERSEDED';
+        return self::changeTypeKeepsPreviousCurrentEffective($changeType) ? 'EFFECTIVE' : 'SUPERSEDED';
     }
 
     public static function changeTypeUsesMinorVersionIncrement($changeType) {
         return strtoupper((string) $changeType) === 'AMENDMENT';
     }
 
-    public static function workflowStatusGetsEffectiveMetadata($status) {
-        return self::normalizeWorkflowStatus($status, '') === 'EFFECTIVE';
-    }
-
-    public static function changeTypePreservesPreviousCurrentAsApproved($changeType) {
-        return self::changeTypePreservesPreviousCurrentAsEffective($changeType);
-    }
-
-    public static function workflowStatusGetsApprovalDate($status) {
-        return self::workflowStatusGetsEffectiveMetadata($status);
-    }
-
     public static function allowsRelationshipTypeForAuthoringMode($relationshipType, $authoringMode = 'create') {
         $relationshipType = strtoupper((string) $relationshipType);
         if ($authoringMode === 'issue') {
             $allowed = self::issueRelationshipTypes();
-        } elseif ($authoringMode === 'legacy') {
-            $allowed = self::legacyCompatibilityRelationshipTypes();
         } else {
             $allowed = self::createRelationshipTypes();
         }
@@ -240,8 +171,6 @@ class PdmsAuthoringOptions {
         $changeType = strtoupper((string) $changeType);
         if ($authoringMode === 'issue') {
             $allowed = self::issueChangeTypes();
-        } elseif ($authoringMode === 'legacy') {
-            $allowed = self::legacyCompatibilityChangeTypes();
         } else {
             $allowed = self::createChangeTypes();
         }
@@ -266,27 +195,6 @@ class PdmsAuthoringOptions {
 
         $last = array_pop($values);
         return implode(', ', $values) . ', and ' . $last;
-    }
-
-    public static function legacyCompatibilityUiRules() {
-        return [
-            'change_type_modes' => [
-                'AMENDMENT' => 'amend',
-                'PARTIAL_REVISION' => 'amend',
-                'FULL_REVISION' => 'amend',
-                'SUPERSEDING_PROCEDURE' => 'supersede'
-            ],
-            'relationship_type_modes' => [
-                'AMENDS' => 'amend',
-                'REVISES' => 'amend',
-                'SUPERSEDES' => 'supersede'
-            ],
-            'helper_messages' => [
-                'amend' => 'Bridge-safe amendment or revision mode: select the amended SOP target, leave superseded target unused, and capture affected sections.',
-                'supersede' => 'Bridge-safe supersession mode: select the superseded SOP target. Affected sections are not needed for this path.',
-                'neutral' => 'Auto-detect mode: use only one target path at a time. Choose amendment or revision intent for amended targets, or superseding intent for superseded targets.'
-            ]
-        ];
     }
 
     public static function pdmsAuthoringUiRules() {
@@ -322,10 +230,6 @@ class PdmsAuthoringOptions {
             return 'Invalid PDMS change type selected for revision registration. Allowed values: ' . self::formatList(self::issueChangeTypes()) . '.';
         }
 
-        if ($authoringMode === 'legacy') {
-            return 'Legacy compatibility maintenance only supports ' . self::formatList(self::legacyCompatibilityChangeTypes()) . ' change types.';
-        }
-
         return 'Invalid PDMS change type selected. Allowed values: ' . self::formatList(self::createChangeTypes()) . '.';
     }
 
@@ -334,18 +238,10 @@ class PdmsAuthoringOptions {
             return 'Invalid PDMS relationship type selected for revision registration. Allowed values: ' . self::formatList(self::issueRelationshipTypes()) . '.';
         }
 
-        if ($authoringMode === 'legacy') {
-            return 'Legacy compatibility maintenance only supports ' . self::formatList(self::legacyCompatibilityRelationshipTypes()) . ' relationship intent.';
-        }
-
         return 'Invalid PDMS relationship type selected. Allowed values: ' . self::formatList(self::createRelationshipTypes()) . '.';
     }
 
     public static function invalidWorkflowStatusMessage($authoringMode = 'create') {
-        if ($authoringMode === 'legacy') {
-            return 'Legacy compatibility maintenance only supports registry-compatible pre-terminal states.';
-        }
-
         return 'Invalid PDMS registry state selected for authoring.';
     }
 
@@ -378,26 +274,6 @@ class PdmsAuthoringOptions {
 
     public static function newChangeTypeCannotHaveRelationshipMessage() {
         return 'Use a non-NEW change type when creating a linked registry record';
-    }
-
-    public static function legacyAmendedTargetRequiredMessage($relationshipDriven = false) {
-        if ($relationshipDriven) {
-            return 'An AMENDS relationship requires an amended target SOP.';
-        }
-
-        return 'Amendments must select the SOP being amended.';
-    }
-
-    public static function legacySupersededTargetRequiredMessage($relationshipDriven = false) {
-        if ($relationshipDriven) {
-            return 'This relationship type requires a superseded target SOP.';
-        }
-
-        return 'This change type must select the SOP being replaced or rescinded.';
-    }
-
-    public static function legacyRelationshipNeedsTargetMessage() {
-        return 'Choose a related SOP target before setting a relationship intent.';
     }
 
     public static function invalidAuthoringStatusExceptionMessage($status) {

@@ -6,6 +6,7 @@ require_once dirname(__DIR__) . '/core/Database.php';
 
 require_once 'helpers/url_helper.php';
 require_once 'helpers/session_helper.php';
+require_once 'helpers/pdms_authoring_options.php';
 
 // Only set session settings if a session hasn't started yet
 if (session_status() == PHP_SESSION_NONE) {

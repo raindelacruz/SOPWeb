@@ -17,7 +17,6 @@ function assertFileContains($path, $needle, $message) {
 
 function runRegressionSuite() {
     $authoringServicePath = __DIR__ . '/../app/models/ProcedureAuthoringService.php';
-    $syncServicePath = __DIR__ . '/../app/models/ProcedureSyncService.php';
 
     assertFileContains(
         $authoringServicePath,
@@ -37,10 +36,9 @@ function runRegressionSuite() {
         'Superseding a target procedure should clear current_version_id in ProcedureAuthoringService.'
     );
 
-    assertFileContains(
-        $syncServicePath,
-        '$this->clearCurrentVersion((int) $supersededProcedure->id);',
-        'Legacy sync supersession should clear the controlling-version pointer in ProcedureSyncService.'
+    assertTrue(
+        file_exists(__DIR__ . '/../app/models/ProcedureSyncService.php') === false,
+        'Terminal-state cleanup should remove the retired legacy sync service.'
     );
 
     echo "Terminal pointer clearing regression: OK\n";

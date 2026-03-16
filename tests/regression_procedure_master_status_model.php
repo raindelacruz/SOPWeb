@@ -17,19 +17,12 @@ function assertFileContains($path, $needle, $message) {
 
 function runRegressionSuite() {
     $authoringServicePath = __DIR__ . '/../app/models/ProcedureAuthoringService.php';
-    $syncServicePath = __DIR__ . '/../app/models/ProcedureSyncService.php';
     $readModelPath = __DIR__ . '/../app/models/ProcedureReadModel.php';
 
     assertFileContains(
         $authoringServicePath,
         "return 'ACTIVE';",
         'ProcedureAuthoringService should continue to treat non-terminal procedure masters as ACTIVE.'
-    );
-
-    assertFileContains(
-        $syncServicePath,
-        "'status' => 'ACTIVE'",
-        'ProcedureSyncService should continue to write ACTIVE for non-terminal procedure masters during sync.'
     );
 
     assertFileContains(
@@ -54,6 +47,11 @@ function runRegressionSuite() {
         $readModelPath,
         'PdmsAuthoringOptions::terminalProcedureStatuses()',
         'ProcedureReadModel dashboard should continue to treat terminal procedure-master states as non-current through the shared policy helper.'
+    );
+
+    assertTrue(
+        file_exists(__DIR__ . '/../app/models/ProcedureSyncService.php') === false,
+        'Procedure master status cleanup should remove the retired legacy sync service.'
     );
 
     echo "Procedure master status model regression: OK\n";

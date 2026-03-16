@@ -3,7 +3,6 @@ require_once __DIR__ . '/../app/helpers/pdms_authoring_options.php';
 require_once __DIR__ . '/../app/models/ProcedureAuthoringService.php';
 require_once __DIR__ . '/../core/Controller.php';
 require_once __DIR__ . '/../app/controllers/Procedures.php';
-require_once __DIR__ . '/../app/controllers/Posts.php';
 
 function assertTrue($condition, $message) {
     if (!$condition) {
@@ -75,17 +74,9 @@ function testSharedAuthoringRulePredicatesStayAligned() {
         'Shared authoring rules should require a PDMS target for superseding issuances.'
     );
     assertTrue(
-        PdmsAuthoringOptions::requiresLegacyAmendedTarget('AMENDMENT', '') === true,
-        'Shared authoring rules should require an amended legacy target for amendment compatibility flows.'
-    );
-    assertTrue(
-        PdmsAuthoringOptions::requiresLegacySupersededTarget('', 'SUPERSEDES') === true,
-        'Shared authoring rules should require a superseded legacy target for supersession compatibility flows.'
-    );
-    assertTrue(
-        PdmsAuthoringOptions::allowsChangeTypeForAuthoringMode('SUPERSEDING_PROCEDURE', 'legacy') === true
-            && PdmsAuthoringOptions::allowsChangeTypeForAuthoringMode('REFERENCE', 'legacy') === false,
-        'Shared authoring rules should keep legacy compatibility choices limited to the bridge-safe change-type subset.'
+        PdmsAuthoringOptions::allowsChangeTypeForAuthoringMode('SUPERSEDING_PROCEDURE', 'create') === true
+            && PdmsAuthoringOptions::allowsChangeTypeForAuthoringMode('REFERENCE', 'create') === true,
+        'Shared authoring rules should keep PDMS create choices aligned with the current centralized change-type list.'
     );
     assertTrue(
         PdmsAuthoringOptions::allowsRelationshipTypeForAuthoringMode('DERIVED_FROM', 'issue') === true
@@ -96,8 +87,8 @@ function testSharedAuthoringRulePredicatesStayAligned() {
 
 function testSharedAuthoringMessagesStayCentralized() {
     assertTrue(
-        PdmsAuthoringOptions::invalidChangeTypeMessage('legacy') === 'Legacy compatibility maintenance only supports NEW, AMENDMENT, PARTIAL_REVISION, FULL_REVISION, and SUPERSEDING_PROCEDURE change types.',
-        'Shared authoring messages should centralize the legacy bridge-safe change-type copy.'
+        PdmsAuthoringOptions::invalidChangeTypeMessage('create') === 'Invalid PDMS change type selected. Allowed values: NEW, AMENDMENT, PARTIAL_REVISION, FULL_REVISION, SUPERSEDING_PROCEDURE, RESCISSION, and REFERENCE.',
+        'Shared authoring messages should centralize the PDMS create change-type copy.'
     );
     assertTrue(
         PdmsAuthoringOptions::invalidRelationshipTypeMessage('issue') === 'Invalid PDMS relationship type selected for revision registration. Allowed values: AMENDS, REVISES, SUPERSEDES, REFERENCES, and DERIVED_FROM.',
@@ -113,25 +104,63 @@ function testSharedAuthoringMessagesStayCentralized() {
     );
 }
 
-function testSharedSyncSemanticsStayCentralized() {
+function testLegacyPolicySurfaceIsRetired() {
+    $helperSource = file_get_contents(__DIR__ . '/../app/helpers/pdms_authoring_options.php');
+
+    assertTrue($helperSource !== false, 'PDMS authoring helper should be readable for retirement checks.');
+
+    assertTrue(
+        strpos($helperSource, 'legacyCompatibilityChangeTypes') === false,
+        'Legacy compatibility change-type helpers should be removed once posts writes are retired.'
+    );
+    assertTrue(
+        strpos($helperSource, 'legacyCompatibilityRelationshipTypes') === false,
+        'Legacy compatibility relationship helpers should be removed once posts writes are retired.'
+    );
+    assertTrue(
+        strpos($helperSource, 'legacyCompatibilityUiRules') === false,
+        'Legacy compatibility UI helper rules should be removed once posts writes are retired.'
+    );
+}
+
+function testSharedLifecycleSemanticsStayCentralized() {
     assertTrue(
         PdmsAuthoringOptions::changeTypeUsesMinorVersionIncrement('AMENDMENT') === true
             && PdmsAuthoringOptions::changeTypeUsesMinorVersionIncrement('FULL_REVISION') === false,
         'Shared authoring policy should centralize which change types keep amendment-style minor version increments.'
     );
     assertTrue(
-        PdmsAuthoringOptions::changeTypeUsesAmendedLegacyTarget('REFERENCE') === true
-            && PdmsAuthoringOptions::changeTypeUsesSupersededLegacyTarget('REFERENCE') === false,
-        'Shared authoring policy should centralize which change types can map to amended legacy targets during sync.'
+        PdmsAuthoringOptions::replacementStatusForPreviousCurrent('AMENDMENT') === 'EFFECTIVE'
+            && PdmsAuthoringOptions::replacementStatusForPreviousCurrent('FULL_REVISION') === 'SUPERSEDED',
+        'Shared authoring policy should centralize how previous controlling versions transition during PDMS revisions.'
     );
     assertTrue(
-        PdmsAuthoringOptions::changeTypeUsesSupersededLegacyTarget('RESCISSION') === true,
-        'Shared authoring policy should centralize which change types can map to superseded legacy targets during sync.'
+        PdmsAuthoringOptions::normalizeWorkflowStatus('APPROVED') === 'EFFECTIVE'
+            && PdmsAuthoringOptions::normalizeWorkflowStatus('FOR_APPROVAL') === 'REGISTERED',
+        'Shared authoring policy should centralize normalization of imported legacy workflow labels into registry states.'
+    );
+}
+
+function testApprovalEraHelperNamesAreRetired() {
+    $helperSource = file_get_contents(__DIR__ . '/../app/helpers/pdms_authoring_options.php');
+
+    assertTrue($helperSource !== false, 'PDMS authoring helper should be readable for naming cleanup checks.');
+
+    assertTrue(
+        strpos($helperSource, 'changeTypePreservesPreviousCurrentAsApproved') === false,
+        'Approval-era helper names should be retired from the PDMS authoring policy surface.'
     );
     assertTrue(
-        PdmsAuthoringOptions::workflowStatusGetsEffectiveMetadata('EFFECTIVE') === true
-            && PdmsAuthoringOptions::workflowStatusGetsEffectiveMetadata('REGISTERED') === false,
-        'Shared authoring policy should centralize EFFECTIVE-state compatibility metadata for synced registry states.'
+        strpos($helperSource, 'workflowStatusGetsApprovalDate') === false,
+        'Approval-era date helper names should be retired from the PDMS authoring policy surface.'
+    );
+    assertTrue(
+        strpos($helperSource, 'changeTypeKeepsPreviousCurrentEffective') !== false,
+        'Registry-native helper names should describe keeping a prior controlling version effective when needed.'
+    );
+    assertTrue(
+        strpos($helperSource, 'workflowStatusUsesEffectiveMetadata') === false,
+        'Retired compatibility metadata helpers should be removed from the PDMS-only policy surface.'
     );
 }
 
@@ -185,14 +214,14 @@ function testProceduresControllerSharedValidationFlow() {
         public function hasPdmsFoundation() {
             return false;
         }
-    };
-    $controller->procedureModel = new class {
-        public function getByCode($code) {
+
+        public function documentNumberExists($documentNumber, $excludeVersionId = null) {
+            unset($documentNumber, $excludeVersionId);
             return false;
         }
     };
-    $controller->postModel = new class {
-        public function findPostByReferenceNumber($referenceNumber) {
+    $controller->procedureModel = new class {
+        public function getByCode($code) {
             return false;
         }
     };
@@ -316,180 +345,21 @@ function testServiceRejectsOutOfScopeAuthoringChoices() {
     );
 }
 
-function testLegacyCompatibilityWorkflowStatusesStayPreTerminal() {
-    $controller = newInstanceWithoutConstructor(Posts::class);
-    $allowed = invokePrivateMethod(Posts::class, $controller, 'allowedLegacyCompatibilityWorkflowStatuses');
-
-    assertTrue(
-        $allowed === ['REGISTERED', 'EFFECTIVE'],
-        'Legacy compatibility workflow metadata should stay limited to registry-oriented pre-terminal states.'
-    );
-
-    $data = [
-        'change_type' => '',
-        'workflow_status' => 'RESCINDED',
-        'pdms_relationship_type' => '',
-        'affected_sections' => '',
-        'amended_post_id' => null,
-        'superseded_post_id' => null
-    ];
-
-    $errors = invokePrivateMethod(Posts::class, $controller, 'validatePdmsInput', [$data]);
-
-    assertTrue(
-        strpos((string) ($errors['workflow_status_err'] ?? ''), 'registry-compatible pre-terminal states') !== false,
-        'Legacy compatibility validation should reject terminal workflow statuses clearly.'
-    );
-}
-
-function testPostsControllerSharedLegacyValidationFlow() {
-    $controller = newInstanceWithoutConstructor(Posts::class);
-    $controller->postModel = new class {
-        public function findPostByReferenceNumber($referenceNumber) {
-            return false;
-        }
-
-        public function getPostById($id) {
-            return null;
-        }
-    };
-
-    $invalidData = invokePrivateMethod(Posts::class, $controller, 'applySharedLegacyFieldValidation', [[
-        'title' => '',
-        'description' => '',
-        'reference_number' => '',
-        'date_of_effectivity' => '',
-        'file_err' => '',
-        'amended_post_id' => null,
-        'superseded_post_id' => null,
-        'change_type' => 'AMENDMENT',
-        'workflow_status' => 'EFFECTIVE',
-        'pdms_relationship_type' => 'AMENDS',
-        'affected_sections' => '',
-        'pdms_err' => ''
-    ]]);
-
-    assertTrue($invalidData['title_err'] !== '', 'Shared legacy validation should enforce required title checks.');
-    assertTrue($invalidData['amended_post_id_err'] !== '', 'Shared legacy validation should enforce amended-target requirements.');
-    assertTrue(
-        invokePrivateMethod(Posts::class, $controller, 'hasLegacyValidationErrors', [$invalidData]) === true,
-        'Shared legacy validation should report invalid payloads through the centralized legacy error gate.'
-    );
-
-    $validData = invokePrivateMethod(Posts::class, $controller, 'applySharedLegacyFieldValidation', [[
-        'title' => 'Legacy title',
-        'description' => 'Legacy description',
-        'reference_number' => 'LEG-100',
-        'date_of_effectivity' => '2026-03-13',
-        'file_err' => '',
-        'amended_post_id' => null,
-        'superseded_post_id' => null,
-        'change_type' => '',
-        'workflow_status' => 'EFFECTIVE',
-        'pdms_relationship_type' => '',
-        'affected_sections' => '',
-        'pdms_err' => ''
-    ]]);
-
-    assertTrue(
-        invokePrivateMethod(Posts::class, $controller, 'hasLegacyValidationErrors', [$validData]) === false,
-        'Shared legacy validation should allow clean compatibility payloads through the centralized legacy error gate.'
-    );
-}
-
-function testLegacyTargetNormalizationRejectsUnknownPosts() {
-    $controller = newInstanceWithoutConstructor(Posts::class);
-    $controller->postModel = new class {
-        public function getPostById($id) {
-            return null;
-        }
-    };
-
-    assertTrue(
-        invokePrivateMethod(Posts::class, $controller, 'normalizeLegacyTargetId', ['999']) === null,
-        'Legacy target normalization should clear unknown related post IDs before save.'
-    );
-}
-
-function testLegacyCompatibilityChangeTypesStayBridgeSafe() {
-    $controller = newInstanceWithoutConstructor(Posts::class);
-    $allowed = invokePrivateMethod(Posts::class, $controller, 'allowedLegacyCompatibilityChangeTypes');
-
-    assertTrue(
-        $allowed === ['NEW', 'AMENDMENT', 'PARTIAL_REVISION', 'FULL_REVISION', 'SUPERSEDING_PROCEDURE'],
-        'Legacy compatibility change types should stay limited to the bridge-safe subset.'
-    );
-
-    $data = [
-        'change_type' => 'REFERENCE',
-        'workflow_status' => 'EFFECTIVE',
-        'pdms_relationship_type' => '',
-        'affected_sections' => '',
-        'amended_post_id' => null,
-        'superseded_post_id' => null
-    ];
-
-    $errors = invokePrivateMethod(Posts::class, $controller, 'validatePdmsInput', [$data]);
-
-    assertTrue(
-        strpos((string) ($errors['change_type_err'] ?? ''), 'NEW, AMENDMENT, PARTIAL_REVISION, FULL_REVISION, and SUPERSEDING_PROCEDURE') !== false,
-        'Legacy compatibility validation should reject non-bridge-safe change types clearly.'
-    );
-}
-
-function testLegacyCompatibilityRelationshipTypesStayBridgeSafe() {
-    $controller = newInstanceWithoutConstructor(Posts::class);
-    $allowed = invokePrivateMethod(Posts::class, $controller, 'allowedLegacyCompatibilityRelationshipTypes');
-
-    assertTrue(
-        $allowed === ['AMENDS', 'REVISES', 'SUPERSEDES'],
-        'Legacy compatibility relationship intent should stay limited to the bridge-safe subset.'
-    );
-
-    $data = [
-        'change_type' => '',
-        'workflow_status' => 'EFFECTIVE',
-        'pdms_relationship_type' => 'DERIVED_FROM',
-        'affected_sections' => '',
-        'amended_post_id' => 42,
-        'superseded_post_id' => null
-    ];
-
-    $errors = invokePrivateMethod(Posts::class, $controller, 'validatePdmsInput', [$data]);
-
-    assertTrue(
-        strpos((string) ($errors['pdms_relationship_type_err'] ?? ''), 'AMENDS, REVISES, and SUPERSEDES') !== false,
-        'Legacy compatibility validation should reject non-bridge-safe relationship types clearly.'
-    );
-}
-
-function testLegacyCompatibilityUiHelperHooksExist() {
-    $createView = file_get_contents(__DIR__ . '/../app/views/posts/create.php');
-    $editView = file_get_contents(__DIR__ . '/../app/views/posts/edit.php');
+function testLegacyCompatibilityUiHooksAreRetired() {
+    $createViewExists = file_exists(__DIR__ . '/../app/views/posts/create.php');
+    $editViewExists = file_exists(__DIR__ . '/../app/views/posts/edit.php');
     $mainJs = file_get_contents(__DIR__ . '/../public/js/main.js');
 
-    assertTrue($createView !== false, 'Legacy create view should be readable for UI helper checks.');
-    assertTrue($editView !== false, 'Legacy edit view should be readable for UI helper checks.');
     assertTrue($mainJs !== false, 'Shared main.js should exist for UI helper checks.');
 
     assertTrue(
-        strpos($createView, 'data-legacy-compat-form') !== false,
-        'Legacy compatibility create view should expose the shared UI helper hook.'
+        $createViewExists === false && $editViewExists === false,
+        'Legacy compatibility create/edit views should be removed once legacy writes are retired.'
     );
 
     assertTrue(
-        strpos($editView, 'data-legacy-compat-form') !== false,
-        'Legacy compatibility edit view should expose the shared UI helper hook.'
-    );
-
-    assertTrue(
-        strpos($createView, 'data-authoring-rules') !== false && strpos($editView, 'data-authoring-rules') !== false,
-        'Legacy compatibility views should expose shared authoring rule metadata for the UI helper.'
-    );
-
-    assertTrue(
-        strpos($mainJs, 'data-legacy-compat-form') !== false && strpos($mainJs, 'parseAuthoringRules') !== false,
-        'Shared main.js should guide legacy compatibility form state from the shared rule metadata.'
+        strpos($mainJs, 'data-legacy-compat-form') === false,
+        'Shared main.js should no longer include retired legacy compatibility form handling.'
     );
 }
 
@@ -528,18 +398,15 @@ function runRegressionSuite() {
     testPdmsControllerOptionListsStayCentralized();
     testSharedAuthoringRulePredicatesStayAligned();
     testSharedAuthoringMessagesStayCentralized();
-    testSharedSyncSemanticsStayCentralized();
+    testSharedLifecycleSemanticsStayCentralized();
+    testApprovalEraHelperNamesAreRetired();
     testPdmsControllerNormalizesRelationshipInputs();
     testProceduresControllerSharedValidationFlow();
     testServiceNormalizesRelationshipInputsDirectly();
     testServiceRejectsTerminalAuthoringStatuses();
     testServiceRejectsOutOfScopeAuthoringChoices();
-    testLegacyCompatibilityWorkflowStatusesStayPreTerminal();
-    testPostsControllerSharedLegacyValidationFlow();
-    testLegacyTargetNormalizationRejectsUnknownPosts();
-    testLegacyCompatibilityChangeTypesStayBridgeSafe();
-    testLegacyCompatibilityRelationshipTypesStayBridgeSafe();
-    testLegacyCompatibilityUiHelperHooksExist();
+    testLegacyPolicySurfaceIsRetired();
+    testLegacyCompatibilityUiHooksAreRetired();
     testPdmsAuthoringUiHelperHooksExist();
     echo "Authoring status validation regression: OK\n";
 }
