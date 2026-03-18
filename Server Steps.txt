@@ -1,0 +1,137 @@
+**Server Steps**
+
+Here’s the clean way to make `https://sop.nfa.gov.ph` open your SOPWeb login page directly.
+
+**1. Put the project on the server**
+Make sure your project is located at:
+
+```text
+C:\xampp\htdocs\SOPWeb
+```
+
+The public entry point must exist here:
+
+```text
+C:\xampp\htdocs\SOPWeb\public\index.php
+```
+
+**2. Open Apache’s vhost config**
+In XAMPP, open:
+
+```text
+C:\xampp\apache\conf\extra\httpd-vhosts.conf
+```
+
+If Apache is not loading this file yet, open:
+
+```text
+C:\xampp\apache\conf\httpd.conf
+```
+
+and make sure this line is enabled:
+
+```apache
+Include conf/extra/httpd-vhosts.conf
+```
+
+**3. Create a virtual host for your domain**
+Add this to `httpd-vhosts.conf`:
+
+```apache
+<VirtualHost *:80>
+    ServerName sop.nfa.gov.ph
+    DocumentRoot "C:/xampp/htdocs/SOPWeb/public"
+
+    <Directory "C:/xampp/htdocs/SOPWeb/public">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+This is the important part:
+`DocumentRoot` must point to `public`, not to `htdocs` and not to `SOPWeb` root.
+
+**4. If you use HTTPS, configure SSL vhost too**
+Open:
+
+```text
+C:\xampp\apache\conf\extra\httpd-ssl.conf
+```
+
+Add or update:
+
+```apache
+<VirtualHost *:443>
+    ServerName sop.nfa.gov.ph
+    DocumentRoot "C:/xampp/htdocs/SOPWeb/public"
+
+    SSLEngine on
+    SSLCertificateFile "C:/path/to/your/fullchain.pem"
+    SSLCertificateKeyFile "C:/path/to/your/privkey.pem"
+
+    <Directory "C:/xampp/htdocs/SOPWeb/public">
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+Use your real SSL certificate paths.
+
+**5. Make sure `mod_rewrite` is enabled**
+In `C:\xampp\apache\conf\httpd.conf`, make sure this line is enabled:
+
+```apache
+LoadModule rewrite_module modules/mod_rewrite.so
+```
+
+Also make sure `AllowOverride All` is present for your vhost as shown above, so `.htaccess` works.
+
+**6. Point the domain to the server**
+In your DNS settings, create/update an `A` record:
+
+```text
+Host: sop.nfa.gov.ph
+Points to: your server public IP
+```
+
+If DNS is already working, leave it as is.
+
+**7. Restart Apache**
+From XAMPP Control Panel:
+- Stop Apache
+- Start Apache again
+
+Or restart the whole XAMPP Apache service.
+
+**8. Test the URLs**
+After restart, test:
+
+```text
+https://sop.nfa.gov.ph
+https://sop.nfa.gov.ph/users/login
+```
+
+Both should now load SOPWeb, and the bare domain should go to the login page.
+
+**9. If it still opens localhost/dashboard**
+That usually means one of these is still wrong:
+- `DocumentRoot` is pointing to the wrong folder
+- SSL vhost is pointing somewhere else
+- Apache is still serving the default XAMPP site
+- DNS is hitting another server
+- Apache was not restarted after config change
+
+**10. Optional but recommended**
+If you want, set this environment variable on the server for a fixed app URL:
+
+```text
+SOPWEB_URLROOT=https://sop.nfa.gov.ph
+```
+
+That helps the app generate the correct links consistently.
+
+If you want, I can give you the exact final contents for your `httpd-vhosts.conf` and `httpd-ssl.conf` based on your current server setup.
